@@ -1,11 +1,11 @@
 {
+  "updatedAt": "2026-09-30T21:50:09.452Z",
+  "createdAt": "2026-09-30T21:50:09.452Z",
   "id": "marche-cache",
   "name": "Marché caché TSSR — entreprises qui embauchent en informatique",
+  "description": null,
   "active": false,
-  "settings": {
-    "executionOrder": "v1",
-    "timezone": "Europe/Paris"
-  },
+  "isArchived": false,
   "nodes": [
     {
       "id": "5b1f0c2e-7a11-4d0e-9a51-0a6c1e000001",
@@ -125,7 +125,7 @@
       },
       "parameters": {
         "method": "POST",
-        "url": "https://api.notion.com/v1/databases/${NOTION_DATABASE_ID}/query",
+        "url": "https://api.notion.com/v1/databases/d24e8ee1-80ce-4cb6-848c-45e44be4a096/query",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
@@ -390,5 +390,43 @@
         ]
       ]
     }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Paris"
+  },
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": null,
+  "versionId": "a8aaffd0-cc7a-4f06-a879-33b9b102db43",
+  "activeVersionId": null,
+  "versionCounter": 14,
+  "triggerCount": 0,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-09-30T21:50:09.455Z",
+      "createdAt": "2026-09-30T21:50:09.455Z",
+      "role": "workflow:owner",
+      "workflowId": "marche-cache",
+      "projectId": "3tQLdbXSrpKYsg49",
+      "project": {
+        "updatedAt": "2026-09-30T10:00:29.022Z",
+        "createdAt": "2026-09-30T09:58:27.731Z",
+        "id": "3tQLdbXSrpKYsg49",
+        "name": "Kamal Kaced <kkaced31@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "54115621-27ac-4391-a00e-734d75006ec5"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": null,
+    "description": null
   }
 }
