@@ -12,7 +12,7 @@ Open work, roughly in priority order. Closed items move to `CHANGELOG.md`.
 - [ ] Keep `docker-stacks/automation/workflows/` in sync: re-export each workflow after editing it in the n8n UI (`n8n export:workflow`), so they survive a disk failure without a vzdump.
 - [ ] `mail-triage` is active (2026-09-30). Run it for a week while still reading every mail while still reading every mail. Tighten the prompt from the misses.
 - [ ] `mail-triage` costs ~690 Groq tokens per mail against the free plan's 200K tokens/day and 8K/min (~290 mails/day, ~11/min). Past that Groq answers 429 and the workflow fails open, notifying every mail. Check the daily volume after a week; if it is close, add a local pre-filter (e.g. `List-Unsubscribe` header) before the API call.
-- [ ] Delete the leftover inactive `TEST mail-triage` workflow in the n8n UI (the CLI cannot delete).
+- [ ] Delete the leftover inactive `TEST erreur` workflow in the n8n UI (the CLI cannot delete).
 - [ ] `mail-triage` sends sender, subject and the first 1500 characters of every mail to Groq, including bank/tax mail. Add a local rule to keep those senders off the API if that matters.
 - [ ] Install Tailscale in LXC 102 and keep n8n private to the tailnet. Use Funnel on a single endpoint only if an external service must call a webhook.
 - [ ] n8n idles at ~570 MB against a 2 GB limit (LXC has 3 GB). Watch it once scraping workflows run.

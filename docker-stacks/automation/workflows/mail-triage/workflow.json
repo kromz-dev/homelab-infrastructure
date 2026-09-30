@@ -4,7 +4,8 @@
   "active": false,
   "settings": {
     "executionOrder": "v1",
-    "timezone": "Europe/Paris"
+    "timezone": "Europe/Paris",
+    "errorWorkflow": "mail-triage"
   },
   "nodes": [
     {
@@ -40,7 +41,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst acct = '${GMAIL_USER}';\nconst vip = '${VIP_SENDERS}'.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);\nconst rescue = /int[ée]rim|mission|aide[- ]soignant|\\bASH\\b|FFAS|alternance|TSSR|\\bCDD\\b|candidature|entretien|recrut/i;\nreturn $input.all().map(({ json: m }) => {\n  const from = m.from?.text || m.from || '';\n  const subject = m.subject || '';\n  const addr = (from.match(/<([^>]+)>/)?.[1] || from).toLowerCase();\n  const text = (m.textPlain || m.text || '').replace(/\\s+/g, ' ').slice(0, 1500);\n  const h = m.metadata || m.headers || {}; // the IMAP node puts the raw headers under `metadata`\n  const mid = String(h['message-id'] || '').replace(/^<|>$/g, '');\n  const link = mid ? `https://mail.google.com/mail/?authuser=${encodeURIComponent(acct)}#search/rfc822msgid%3A${encodeURIComponent(mid)}` : '';\n  const bulk = 'list-unsubscribe' in h || /bulk|list|junk/i.test(h.precedence || '');\n  const isVip = vip.some(v => addr === v || addr.endsWith('@' + v) || addr.endsWith('.' + v));\n  const excerpt = text.replace(/https?:\\/\\/\\S+/g, '').replace(/\\s+/g, ' ').trim();\n  const short = excerpt.length > 220 ? excerpt.slice(0, 220).replace(/\\s+\\S*$/, '') + '…' : excerpt;\n  const base = { from, subject, link, excerpt: short };\n  if (isVip) return { json: { ...base, route: 'vip', msg: `📬 <b>${esc(subject)}</b>\\nDe : ${esc(from)}\\n→ expéditeur prioritaire` + (short ? `\\n<i>${esc(short)}</i>` : '') + (link ? `\\n<a href=\"${link}\">📧 Ouvrir le mail</a>` : '') } };\n  if (bulk && !rescue.test(subject + ' ' + text)) return { json: { ...base, route: 'bruit', kind: 'newsletter' } };\n  return { json: { ...base, route: 'ia', body: {\n    model: 'openai/gpt-oss-120b',\n    reasoning_effort: 'low',\n    temperature: 0,\n    response_format: { type: 'json_object' },\n    messages: [\n      { role: 'system', content: \"Tu tries les mails de Kram, qui cherche : une alternance TSSR (syst\\u00e8mes/r\\u00e9seaux, Toulouse), des missions d'int\\u00e9rim aide-soignant (FFAS/ASH), et des clients pour son activit\\u00e9 de prestataire informatique.\\n\\nIMPORTANT = une personne ou une organisation attend une r\\u00e9ponse ou une action de sa part, dans l'un de ces cas : recruteurs, entreprises, \\u00e9coles ou organismes de formation (alternance, TSSR) ; agences d'int\\u00e9rim, offres de mission ou d'emploi ; clients ou prospects ; administration et finances (France Travail, URSSAF, imp\\u00f4ts, banque, assurance) ; rendez-vous ou livraison \\u00e0 venir.\\nPAS IMPORTANT = tout message automatique qui ne demande rien : newsletters, promotions, r\\u00e9seaux sociaux, re\\u00e7us, confirmations, changements de conditions, et les notifications de s\\u00e9curit\\u00e9 courantes (nouvelle connexion, nouvel appareil, application tierce autoris\\u00e9e, alerte de s\\u00e9curit\\u00e9). Une notification de s\\u00e9curit\\u00e9 n'est importante que si elle annonce un mot de passe ou un e-mail modifi\\u00e9, un compte suspendu ou pirat\\u00e9.\\n\\nDans le doute, r\\u00e9ponds important=true pour le message d'une personne ou d'une entreprise, et important=false pour un message automatique de plateforme.\\nR\\u00e9ponds UNIQUEMENT en JSON, raison \\u00e9crite en fran\\u00e7ais : {\\\"important\\\": true|false, \\\"reason\\\": \\\"15 mots maximum\\\"}\" },\n      { role: 'user', content: `De: ${from}\\nObjet: ${subject}\\n\\n${text}` }\n    ]\n  } } };\n});"
+        "jsCode": "const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst acct = '${GMAIL_USER}';\nconst vip = '${VIP_SENDERS}'.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);\nconst rescue = /int[ée]rim|mission|aide[- ]soignant|\\bASH\\b|FFAS|alternance|TSSR|\\bCDD\\b|candidature|entretien|recrut/i;\nreturn $input.all().map(({ json: m }) => {\n  const from = m.from?.text || m.from || '';\n  const subject = m.subject || '';\n  const addr = (from.match(/<([^>]+)>/)?.[1] || from).toLowerCase();\n  const text = (m.textPlain || m.text || '').replace(/\\s+/g, ' ').slice(0, 1500);\n  const h = m.metadata || m.headers || {}; // the IMAP node puts the raw headers under `metadata`\n  const mid = String(h['message-id'] || '').replace(/^<|>$/g, '');\n  const link = mid ? `https://mail.google.com/mail/?authuser=${encodeURIComponent(acct)}#search/rfc822msgid%3A${encodeURIComponent(mid)}` : '';\n  const bulk = 'list-unsubscribe' in h || /bulk|list|junk/i.test(h.precedence || '');\n  const isVip = vip.some(v => addr === v || addr.endsWith('@' + v) || addr.endsWith('.' + v));\n  const excerpt = text.replace(/https?:\\/\\/\\S+/g, '').replace(/\\s+/g, ' ').trim();\n  const short = excerpt.length > 220 ? excerpt.slice(0, 220).replace(/\\s+\\S*$/, '') + '…' : excerpt;\n  const base = { from, subject, link, excerpt: short, lu: m.lu === true };\n  if (isVip) return { json: { ...base, route: 'vip', msg: `📬 <b>${esc(subject)}</b>\\nDe : ${esc(from)}\\n→ expéditeur prioritaire` + (short ? `\\n<i>${esc(short)}</i>` : '') + (m.lu ? '\\n👁️ Lu par Kram' : '') + (link ? `\\n<a href=\"${link}\">📧 Ouvrir le mail</a>` : '') } };\n  if (bulk && !rescue.test(subject + ' ' + text)) return { json: { ...base, route: 'bruit', kind: 'newsletter' } };\n  return { json: { ...base, route: 'ia', body: {\n    model: 'openai/gpt-oss-120b',\n    reasoning_effort: 'low',\n    temperature: 0,\n    response_format: { type: 'json_object' },\n    messages: [\n      { role: 'system', content: \"Tu tries les mails de Kram, qui cherche : une alternance TSSR (syst\\u00e8mes/r\\u00e9seaux, Toulouse), des missions d'int\\u00e9rim aide-soignant (FFAS/ASH), et des clients pour son activit\\u00e9 de prestataire informatique.\\n\\nIMPORTANT = une personne ou une organisation attend une r\\u00e9ponse ou une action de sa part, dans l'un de ces cas : recruteurs, entreprises, \\u00e9coles ou organismes de formation (alternance, TSSR) ; agences d'int\\u00e9rim, offres de mission ou d'emploi ; clients ou prospects ; administration et finances (France Travail, URSSAF, imp\\u00f4ts, banque, assurance) ; rendez-vous ou livraison \\u00e0 venir.\\nPAS IMPORTANT = tout message automatique qui ne demande rien : newsletters, promotions, r\\u00e9seaux sociaux, re\\u00e7us, confirmations, changements de conditions, et les notifications de s\\u00e9curit\\u00e9 courantes (nouvelle connexion, nouvel appareil, application tierce autoris\\u00e9e, alerte de s\\u00e9curit\\u00e9). Une notification de s\\u00e9curit\\u00e9 n'est importante que si elle annonce un mot de passe ou un e-mail modifi\\u00e9, un compte suspendu ou pirat\\u00e9.\\n\\nDans le doute, r\\u00e9ponds important=true pour le message d'une personne ou d'une entreprise, et important=false pour un message automatique de plateforme.\\nR\\u00e9ponds UNIQUEMENT en JSON, raison \\u00e9crite en fran\\u00e7ais : {\\\"important\\\": true|false, \\\"reason\\\": \\\"15 mots maximum\\\"}\" },\n      { role: 'user', content: `De: ${from}\\nObjet: ${subject}\\n\\n${text}` }\n    ]\n  } } };\n});"
       }
     },
     {
@@ -121,7 +122,7 @@
         -120
       ],
       "parameters": {
-        "jsCode": "const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst src = $('IA ?').all();\nreturn $input.all().map((it, i) => {\n  const { from, subject, link, excerpt } = src[i].json;\n  let important = true, reason = 'IA indisponible, à vérifier';\n  try {\n    const r = JSON.parse(it.json.choices[0].message.content);\n    important = r.important !== false;\n    reason = r.reason || '';\n  } catch (e) {}\n  return { json: { important, from, subject, link, excerpt, reason, kind: 'ia',\n    msg: `📬 <b>${esc(subject)}</b>\\nDe : ${esc(from)}\\n→ ${esc(reason)}` + (excerpt ? `\\n<i>${esc(excerpt)}</i>` : '') + (link ? `\\n<a href=\"${link}\">📧 Ouvrir le mail</a>` : '') } };\n});"
+        "jsCode": "const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst src = $('IA ?').all();\nreturn $input.all().map((it, i) => {\n  const { from, subject, link, excerpt, lu } = src[i].json;\n  let important = true, reason = 'IA indisponible, à vérifier';\n  try {\n    const r = JSON.parse(it.json.choices[0].message.content);\n    important = r.important !== false;\n    reason = r.reason || '';\n  } catch (e) {}\n  return { json: { important, from, subject, link, excerpt, reason, kind: 'ia',\n    msg: `📬 <b>${esc(subject)}</b>\\nDe : ${esc(from)}\\n→ ${esc(reason)}` + (excerpt ? `\\n<i>${esc(excerpt)}</i>` : '') + (lu ? '\\n👁️ Lu par Kram' : '') + (link ? `\\n<a href=\"${link}\">📧 Ouvrir le mail</a>` : '') } };\n});"
       }
     },
     {
@@ -252,7 +253,7 @@
         420
       ],
       "parameters": {
-        "jsCode": "const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst sd = $getWorkflowStaticData('global');\nconst list = sd.ignored || [];\nif (!list.length) return [];\nsd.ignored = [];\nconst news = {}, ai = [];\nfor (const i of list) {\n  const name = (i.from.match(/^\"?([^\"<]+?)\"?\\s*</)?.[1] || i.from).trim();\n  if (i.kind === 'newsletter') news[name] = (news[name] || 0) + 1;\n  else ai.push(`• ${i.link ? `<a href=\"${i.link}\">${esc(i.subject)}</a>` : esc(i.subject)} — ${esc(name)}\\n   ↳ ${esc(i.reason)}`);\n}\nconst nl = Object.entries(news).sort((a, b) => b[1] - a[1]).map(([k, n]) => esc(k) + (n > 1 ? ' ×' + n : ''));\nconst lines = [`🗞️ <b>Résumé du jour</b> : ${list.length} mail(s) ignoré(s)`];\nif (ai.length) lines.push('', '🤖 Jugés peu importants, à vérifier :', ...ai);\nif (nl.length) lines.push('', `📰 Newsletters : ${nl.join(', ')}`);\nlet text = '';\nfor (const l of lines) { if ((text + l).length > 3800) { text += '\\n…(tronqué)'; break; } text += (text ? '\\n' : '') + l; }\nreturn [{ json: { text } }];"
+        "jsCode": "const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst sd = $getWorkflowStaticData('global');\nconst list = sd.ignored || [];\nconst traites = sd.traites || 0;\nsd.ignored = [];\nsd.traites = 0;\nconst news = {}, ai = [];\nfor (const i of list) {\n  const name = (i.from.match(/^\"?([^\"<]+?)\"?\\s*</)?.[1] || i.from).trim();\n  if (i.kind === 'newsletter') news[name] = (news[name] || 0) + 1;\n  else ai.push(`• ${i.link ? `<a href=\"${i.link}\">${esc(i.subject)}</a>` : esc(i.subject)} — ${esc(name)}\\n   ↳ ${esc(i.reason)}`);\n}\nconst nl = Object.entries(news).sort((a, b) => b[1] - a[1]).map(([k, n]) => esc(k) + (n > 1 ? ' ×' + n : ''));\nconst lines = [`🗞️ <b>Résumé du jour</b> : ${traites} mail(s) traité(s), ${Math.max(0, traites - list.length)} notifié(s), ${list.length} ignoré(s)`];\nif (!traites) lines.push('⚠️ Aucun mail traité aujourd\\'hui : vérifie que la connexion Gmail fonctionne.');\nif (ai.length) lines.push('', '🤖 Jugés peu importants, à vérifier :', ...ai);\nif (nl.length) lines.push('', `📰 Newsletters : ${nl.join(', ')}`);\nlet text = '';\nfor (const l of lines) { if ((text + l).length > 3800) { text += '\\n…(tronqué)'; break; } text += (text ? '\\n' : '') + l; }\nreturn [{ json: { text } }];"
       }
     },
     {
@@ -278,6 +279,89 @@
           "id": "cred-mail-telegram"
         }
       }
+    },
+    {
+      "id": "n13",
+      "name": "Nouveau mail lu",
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2,
+      "position": [
+        0,
+        260
+      ],
+      "parameters": {
+        "mailbox": "INBOX",
+        "postProcessAction": "nothing",
+        "options": {
+          "customEmailConfig": "[\"SEEN\",[\"UID\",\"${IMAP_FROM_UID}:*\"]]"
+        }
+      },
+      "credentials": {
+        "imap": {
+          "name": "Gmail IMAP",
+          "id": "cred-mail-imap"
+        }
+      }
+    },
+    {
+      "id": "n14",
+      "name": "Noter non lu",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        110,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// ponytail: UIDs kept in workflow static data (last 300); overlapping executions can drop a write\nconst cutoff = ${IMAP_FROM_UID};\nconst sd = $getWorkflowStaticData('global');\nconst seen = sd.seen || [];\nconst out = $input.all().filter(({ json }) => json.attributes?.uid >= cutoff);\nout.forEach(({ json }) => seen.push(json.attributes.uid));\nsd.seen = seen.slice(-300);\nsd.traites = (sd.traites || 0) + out.length;\nreturn out.map(({ json }) => ({ json: { ...json, lu: false } }));"
+      }
+    },
+    {
+      "id": "n15",
+      "name": "Déjà lu ?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        110,
+        260
+      ],
+      "parameters": {
+        "jsCode": "// ponytail: UIDs kept in workflow static data (last 300); overlapping executions can drop a write\nconst cutoff = ${IMAP_FROM_UID};\nconst sd = $getWorkflowStaticData('global');\nconst seen = sd.seen || [];\nconst out = $input.all().filter(({ json }) => json.attributes?.uid >= cutoff && !seen.includes(json.attributes.uid));\nout.forEach(({ json }) => seen.push(json.attributes.uid));\nsd.seen = seen.slice(-300);\nsd.traites = (sd.traites || 0) + out.length;\nreturn out.map(({ json }) => ({ json: { ...json, lu: true } }));"
+      }
+    },
+    {
+      "id": "n16",
+      "name": "En cas d'échec",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        560
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "n17",
+      "name": "Telegram erreur",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        220,
+        560
+      ],
+      "parameters": {
+        "chatId": "${TELEGRAM_CHAT_ID}",
+        "text": "=⚠️ Mail triage : échec d'une exécution\nNœud : {{ $json.execution.lastNodeExecuted }}\nErreur : {{ $json.execution.error.message }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "name": "Telegram bot",
+          "id": "cred-mail-telegram"
+        }
+      }
     }
   ],
   "connections": {
@@ -285,7 +369,7 @@
       "main": [
         [
           {
-            "node": "Filtrer",
+            "node": "Noter non lu",
             "type": "main",
             "index": 0
           }
@@ -395,6 +479,50 @@
         [
           {
             "node": "Telegram résumé",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Noter non lu": {
+      "main": [
+        [
+          {
+            "node": "Filtrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nouveau mail lu": {
+      "main": [
+        [
+          {
+            "node": "Déjà lu ?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Déjà lu ?": {
+      "main": [
+        [
+          {
+            "node": "Filtrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "En cas d'échec": {
+      "main": [
+        [
+          {
+            "node": "Telegram erreur",
             "type": "main",
             "index": 0
           }
