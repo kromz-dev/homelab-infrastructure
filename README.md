@@ -17,11 +17,22 @@ This repository manages the configuration, deployment, and automation of a singl
 
 | Component | Specification | Description |
 |---|---|---|
-| **Hypervisor** | Proxmox VE 9.x | Bare-metal virtualization on Debian 13 |
-| **Compute** | Intel Core i3-8100 | 4 Cores @ 3.60GHz, QSV Passthrough enabled |
+| **Hypervisor** | Proxmox VE 9.x on a Dell OptiPlex 3060 | Bare-metal virtualization on Debian 13 |
+| **Compute** | Intel Core i3-8100 (UHD Graphics 630) | 4 Cores @ 3.60GHz, QSV Passthrough enabled |
 | **Memory** | 16 GB DDR4 | 2 x 8 GB @ 2400 MT/s |
-| **Storage** | 250 GB SATA SSD | LVM-Thin provisioned |
+| **Storage** | 250 GB SATA SSD (WD Blue) | LVM-Thin provisioned |
 | **Network** | 1 Gbps Ethernet | Tailscale overlay network |
+
+### Equipment inventory
+
+| Equipment | Role |
+|---|---|
+| Dell OptiPlex 3060 | The Proxmox VE node described above |
+| 2 × Intel NUC (NUC6CAYS) | Not part of the Proxmox node yet; role to be documented |
+| Linux workstation and Linux laptop | Administration, reachable over Tailscale |
+| iPhone | Mobile access over Tailscale |
+| Home router | Gateway of the `192.168.1.0/24` LAN |
+| Google Drive (5 TB), encrypted with rclone | Cold storage tier of the media pool |
 
 ## Architecture Topology
 

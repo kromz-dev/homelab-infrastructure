@@ -39,6 +39,10 @@ Open work, roughly in priority order. Closed items move to `CHANGELOG.md`.
 - [ ] Pin Jellyfin's image tag. It is the one service where a major upgrade migrates the database irreversibly; the rest can stay on `latest` with a manual pull.
 - [ ] Remove the unused NextPVR plugin from Jellyfin (fails to reach its backend on every startup).
 
+## Hardware
+
+- [ ] Document the two Intel NUC6CAYS: role, OS, IP, installed RAM and storage, and whether they join the tailnet. Confirm their specs on the machines themselves before writing them in the README.
+
 ## Repository
 
 - [ ] The three AI-skill symlinks use absolute paths, so they break for anyone who clones the repo. Make them relative.
