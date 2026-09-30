@@ -9,7 +9,9 @@ Open work, roughly in priority order. Closed items move to `CHANGELOG.md`.
 ## Automation (LXC 102)
 
 - [ ] **Back up `N8N_ENCRYPTION_KEY` off the host** (password manager). It lives only in `/opt/automation/.env`; losing it makes every stored credential unreadable.
-- [ ] Export the n8n workflows as JSON into this repo once the first ones exist, so they survive a disk failure without a vzdump.
+- [ ] Keep `docker-stacks/automation/workflows/` in sync: re-export each workflow after editing it in the n8n UI (`n8n export:workflow`), so they survive a disk failure without a vzdump.
+- [ ] Activate `mail-triage`: create the Gmail IMAP, Groq API and Telegram credentials in n8n, set the Telegram chat ID, then run it for a week while still reading every mail. Tighten the prompt from the misses.
+- [ ] `mail-triage` sends sender, subject and the first 1500 characters of every mail to Groq, including bank/tax mail. Add a local rule to keep those senders off the API if that matters.
 - [ ] Install Tailscale in LXC 102 and keep n8n private to the tailnet. Use Funnel on a single endpoint only if an external service must call a webhook.
 - [ ] n8n idles at ~570 MB against a 2 GB limit (LXC has 3 GB). Watch it once scraping workflows run.
 
