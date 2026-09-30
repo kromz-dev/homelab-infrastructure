@@ -3,7 +3,8 @@
   "name": "Mail triage — notifier les mails importants",
   "active": false,
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "timezone": "Europe/Paris"
   },
   "nodes": [
     {
@@ -31,7 +32,7 @@
     },
     {
       "id": "n2",
-      "name": "Préparer",
+      "name": "Filtrer",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
@@ -39,61 +40,16 @@
         0
       ],
       "parameters": {
-        "jsCode": "const m = $input.first().json;\nconst text = (m.textPlain || m.text || '').replace(/\\s+/g, ' ').slice(0, 1500);\nconst from = m.from?.text || m.from || '';\nconst subject = m.subject || '';\nreturn [{ json: { from, subject, body: {\n  model: 'openai/gpt-oss-120b',\n  reasoning_effort: 'low',\n  temperature: 0,\n  response_format: { type: 'json_object' },\n  messages: [\n    { role: 'system', content: \"Tu tries les mails de Kram, qui cherche : une alternance TSSR (syst\\u00e8mes/r\\u00e9seaux, Toulouse), des missions d'int\\u00e9rim aide-soignant (FFAS/ASH), et des clients pour son activit\\u00e9 de prestataire informatique.\\n\\nIMPORTANT = exige une action ou une r\\u00e9ponse de sa part : recruteurs, entreprises, \\u00e9coles ou organismes de formation, agences d'int\\u00e9rim, clients ou prospects, plateformes freelance (Malt, Contra, freelancermap) quand c'est une vraie personne ou une mission, administration et finances (France Travail, URSSAF, imp\\u00f4ts, banque, assurance), s\\u00e9curit\\u00e9 d'un compte, livraison ou rendez-vous \\u00e0 venir.\\nPAS IMPORTANT = newsletters, promotions, r\\u00e9seaux sociaux, notifications automatiques sans action \\u00e0 faire, re\\u00e7us et confirmations sans suite.\\n\\nDans le doute, r\\u00e9ponds important=true : rater un mail important co\\u00fbte bien plus cher qu'une notification en trop.\\nR\\u00e9ponds UNIQUEMENT en JSON, raison écrite en français : {\\\"important\\\": true|false, \\\"reason\\\": \\\"15 mots maximum\\\"}\" },\n    { role: 'user', content: `De: ${from}\\nObjet: ${subject}\\n\\n${text}` }\n  ]\n} } }];"
+        "jsCode": "const vip = '${VIP_SENDERS}'.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);\nconst rescue = /int[ée]rim|mission|aide[- ]soignant|\\bASH\\b|FFAS|alternance|TSSR|\\bCDD\\b|candidature|entretien|recrut/i;\nreturn $input.all().map(({ json: m }) => {\n  const from = m.from?.text || m.from || '';\n  const subject = m.subject || '';\n  const addr = (from.match(/<([^>]+)>/)?.[1] || from).toLowerCase();\n  const text = (m.textPlain || m.text || '').replace(/\\s+/g, ' ').slice(0, 1500);\n  const h = m.headers || {};\n  const bulk = 'list-unsubscribe' in h || /bulk|list|junk/i.test(h.precedence || '');\n  const isVip = vip.some(v => addr === v || addr.endsWith('@' + v) || addr.endsWith('.' + v));\n  if (isVip) return { json: { from, subject, route: 'vip', msg: `📬 ${subject}\\nDe : ${from}\\n→ expéditeur prioritaire` } };\n  if (bulk && !rescue.test(subject + ' ' + text)) return { json: { from, subject, route: 'bruit', kind: 'newsletter' } };\n  return { json: { from, subject, route: 'ia', body: {\n    model: 'openai/gpt-oss-120b',\n    reasoning_effort: 'low',\n    temperature: 0,\n    response_format: { type: 'json_object' },\n    messages: [\n      { role: 'system', content: \"Tu tries les mails de Kram, qui cherche : une alternance TSSR (syst\\u00e8mes/r\\u00e9seaux, Toulouse), des missions d'int\\u00e9rim aide-soignant (FFAS/ASH), et des clients pour son activit\\u00e9 de prestataire informatique.\\n\\nIMPORTANT = exige une action ou une r\\u00e9ponse de sa part : recruteurs, entreprises, \\u00e9coles ou organismes de formation, agences d'int\\u00e9rim, clients ou prospects, plateformes freelance (Malt, Contra, freelancermap) quand c'est une vraie personne ou une mission, administration et finances (France Travail, URSSAF, imp\\u00f4ts, banque, assurance), s\\u00e9curit\\u00e9 d'un compte, livraison ou rendez-vous \\u00e0 venir.\\nPAS IMPORTANT = newsletters, promotions, r\\u00e9seaux sociaux, notifications automatiques sans action \\u00e0 faire, re\\u00e7us et confirmations sans suite.\\n\\nDans le doute, r\\u00e9ponds important=true : rater un mail important co\\u00fbte bien plus cher qu'une notification en trop.\\nR\\u00e9ponds UNIQUEMENT en JSON, raison écrite en français : {\\\"important\\\": true|false, \\\"reason\\\": \\\"15 mots maximum\\\"}\" },\n      { role: 'user', content: `De: ${from}\\nObjet: ${subject}\\n\\n${text}` }\n    ]\n  } } };\n});"
       }
     },
     {
       "id": "n3",
-      "name": "Groq",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        440,
-        0
-      ],
-      "onError": "continueRegularOutput",
-      "parameters": {
-        "method": "POST",
-        "url": "https://api.groq.com/openai/v1/chat/completions",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify($json.body) }}",
-        "options": {
-          "timeout": 20000
-        }
-      },
-      "credentials": {
-        "httpHeaderAuth": {
-          "name": "Groq API",
-          "id": "cred-mail-groq"
-        }
-      },
-      "retryOnFail": true,
-      "maxTries": 3,
-      "waitBetweenTries": 5000
-    },
-    {
-      "id": "n4",
-      "name": "Décider",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        660,
-        0
-      ],
-      "parameters": {
-        "jsCode": "const { from, subject } = $('Préparer').first().json;\nlet important = true, reason = 'IA indisponible, à vérifier';\ntry {\n  const r = JSON.parse($input.first().json.choices[0].message.content);\n  important = r.important !== false;\n  reason = r.reason || '';\n} catch (e) {}\nreturn [{ json: { important, msg: `📬 ${subject}\\nDe : ${from}\\n→ ${reason}` } }];"
-      }
-    },
-    {
-      "id": "n5",
-      "name": "Important ?",
+      "name": "IA ?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        880,
+        440,
         0
       ],
       "parameters": {
@@ -105,6 +61,87 @@
           "conditions": [
             {
               "id": "c1",
+              "leftValue": "={{ $json.route }}",
+              "rightValue": "ia",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "n4",
+      "name": "Groq",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        -120
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 20000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 6000
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Groq API",
+          "id": "cred-mail-groq"
+        }
+      }
+    },
+    {
+      "id": "n5",
+      "name": "Décider",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        -120
+      ],
+      "parameters": {
+        "jsCode": "const src = $('IA ?').all();\nreturn $input.all().map((it, i) => {\n  const { from, subject } = src[i].json;\n  let important = true, reason = 'IA indisponible, à vérifier';\n  try {\n    const r = JSON.parse(it.json.choices[0].message.content);\n    important = r.important !== false;\n    reason = r.reason || '';\n  } catch (e) {}\n  return { json: { important, from, subject, reason, kind: 'ia', msg: `📬 ${subject}\\nDe : ${from}\\n→ ${reason}` } };\n});"
+      }
+    },
+    {
+      "id": "n6",
+      "name": "Important ?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1100,
+        -120
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c2",
               "leftValue": "={{ $json.important }}",
               "rightValue": true,
               "operator": {
@@ -119,17 +156,116 @@
       }
     },
     {
-      "id": "n6",
+      "id": "n7",
+      "name": "VIP ?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        120
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c3",
+              "leftValue": "={{ $json.route }}",
+              "rightValue": "vip",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "n8",
       "name": "Telegram",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        1100,
-        -80
+        1320,
+        -40
       ],
       "parameters": {
         "chatId": "${TELEGRAM_CHAT_ID}",
         "text": "={{ $json.msg }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "name": "Telegram bot",
+          "id": "cred-mail-telegram"
+        }
+      }
+    },
+    {
+      "id": "n9",
+      "name": "Noter ignoré",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        200
+      ],
+      "parameters": {
+        "jsCode": "// ponytail: digest lives in workflow static data, capped at 500 entries; a DB table if it must survive n8n data loss\nconst sd = $getWorkflowStaticData('global');\nconst add = $input.all().map(({ json: i }) => ({ from: i.from, subject: i.subject, kind: i.kind || 'ia', reason: i.reason || '' }));\nsd.ignored = (sd.ignored || []).concat(add).slice(-500);\nreturn [];"
+      }
+    },
+    {
+      "id": "n10",
+      "name": "Chaque soir",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        420
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "${DIGEST_CRON}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "n11",
+      "name": "Résumé",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        420
+      ],
+      "parameters": {
+        "jsCode": "const sd = $getWorkflowStaticData('global');\nconst list = sd.ignored || [];\nif (!list.length) return [];\nsd.ignored = [];\nconst news = {}, ai = [];\nfor (const i of list) {\n  const name = (i.from.match(/^\"?([^\"<]+?)\"?\\s*</)?.[1] || i.from).trim();\n  if (i.kind === 'newsletter') news[name] = (news[name] || 0) + 1;\n  else ai.push(`• ${i.subject} — ${name}\\n   ↳ ${i.reason}`);\n}\nconst nl = Object.entries(news).sort((a, b) => b[1] - a[1]).map(([k, n]) => k + (n > 1 ? ' ×' + n : ''));\nlet text = `🗞️ Résumé du jour : ${list.length} mail(s) ignoré(s)\\n`;\nif (ai.length) text += `\\n🤖 Jugés peu importants, à vérifier :\\n${ai.join('\\n')}\\n`;\nif (nl.length) text += `\\n📰 Newsletters : ${nl.join(', ')}`;\nif (text.length > 3900) text = text.slice(0, 3900) + '\\n…(tronqué)';\nreturn [{ json: { text } }];"
+      }
+    },
+    {
+      "id": "n12",
+      "name": "Telegram résumé",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        440,
+        420
+      ],
+      "parameters": {
+        "chatId": "${TELEGRAM_CHAT_ID}",
+        "text": "={{ $json.text }}",
         "additionalFields": {
           "appendAttribution": false
         }
@@ -147,18 +283,36 @@
       "main": [
         [
           {
-            "node": "Préparer",
+            "node": "Filtrer",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Préparer": {
+    "Filtrer": {
+      "main": [
+        [
+          {
+            "node": "IA ?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IA ?": {
       "main": [
         [
           {
             "node": "Groq",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "VIP ?",
             "type": "main",
             "index": 0
           }
@@ -196,7 +350,53 @@
             "index": 0
           }
         ],
-        []
+        [
+          {
+            "node": "Noter ignoré",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "VIP ?": {
+      "main": [
+        [
+          {
+            "node": "Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Noter ignoré",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chaque soir": {
+      "main": [
+        [
+          {
+            "node": "Résumé",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Résumé": {
+      "main": [
+        [
+          {
+            "node": "Telegram résumé",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   }
