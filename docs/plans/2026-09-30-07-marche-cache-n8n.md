@@ -101,6 +101,30 @@ Formats vérifiés le 30/09/2026, tous en HTTP 200 sur la même requête. Les qu
 
 **Plafond budgétaire.** `SEARCH_MAX_PER_RUN=120`. Au-delà, le workflow s'arrête, écrit ce qu'il a, et prévient sur Telegram. Le budget Brave disponible est de **5 dollars** : un workflow qui boucle le consommerait en une exécution.
 
+## Pièges du déploiement n8n — constatés le 30/09/2026
+
+Quatre écueils rencontrés en faisant les tâches 1 et 2. Les lire **avant** les tâches 3 à 6.
+
+1. **Écrire `${NOM_DE_VARIABLE}`, pas `$env.NOM`.** `deploy-workflow.sh` passe `workflow.json`
+   dans `envsubst` avec les variables du `.env`. Un `$env.NOTION_DATABASE_ID` dans une expression
+   n8n resterait littéral, ou serait bloqué si l'accès à l'environnement est désactivé. La
+   substitution se fait au déploiement, pas à l'exécution.
+2. **Les noms de nœuds entre `$('…')` doivent correspondre aux noms réels.** Le code des tâches 4
+   et 5 de ce plan référence `$('Filtrer les nouvelles')` et `$('Écarter les entreprises fermées')`
+   — vérifier comment les nœuds s'appellent vraiment dans `workflow.json` avant de recopier.
+   C'est la première cause de panne silencieuse dans n8n.
+3. **`marche-cache` n'a pas encore d'`errorWorkflow`** dans ses `settings`, contrairement à
+   `mail-triage`. À câbler avec l'`Error Trigger` de la tâche 5, sinon une exécution ratée est
+   muette.
+4. **Un `Schedule Trigger` seul ne suffit pas pour exécuter en ligne de commande.** `n8n execute`
+   exige un déclencheur manuel, et réclame `N8N_RUNNERS_BROKER_PORT=5690` (le 5679 est pris par
+   l'instance en marche). Garder un déclencheur manuel dans le workflow pour les essais.
+
+Et un rappel : `/opt/automation/` est une **copie** du dépôt, pas le dépôt. Toute modification de
+`workflow.json` doit être recopiée côté serveur avant import. `deploy-workflow.sh` redémarre n8n,
+ce qui interrompt brièvement `mail-triage` : préférer `pct push` puis `n8n import:workflow` quand
+un redémarrage n'est pas nécessaire.
+
 ## Global Constraints
 
 - **Tout dans n8n.** Aucun script Python, aucune entrée cron sur l'hôte Proxmox, aucun planificateur interne. Si une étape semble exiger du code, elle tient dans un nœud Code JavaScript.
@@ -334,6 +358,9 @@ for (const item of $input.all()) {
       if (!existant.romes.includes(e.rome)) existant.romes.push(e.rome);
       continue;
     }
+    // Quand un établissement plus prometteur remplace le précédent, il doit HÉRITER
+    // des codes ROME déjà vus, sinon ils sont perdus (bug mesuré : 11 établissements
+    // multi-ROME au lieu de 72).
     parSiret.set(e.siret, {
       siret: e.siret,
       nom: e.company_name || '',
@@ -341,10 +368,11 @@ for (const item of $input.all()) {
       citycode: e.citycode || '',
       lat: e.location?.lat ?? null,
       lon: e.location?.lon ?? null,
-      effectif: [e.headcount_min, e.headcount_max].filter(Boolean).join('-'),
+      // filter(Boolean) écarterait headcount_min: 0, qui est une valeur légitime.
+      effectif: [e.headcount_min, e.headcount_max].filter(v => v !== null && v !== undefined).join('-'),
       naf_label: e.naf_label || '',
       potentiel: Math.round(potentiel * 10) / 10,
-      romes: existant ? existant.romes : [e.rome],
+      romes: existant ? [...new Set([...existant.romes, e.rome])] : [e.rome],
     });
   }
 }
@@ -353,7 +381,7 @@ return [...parSiret.values()].map(json => ({ json }));
 
 - [ ] **Step 5: Essai manuel**
 
-Exécuter le workflow à la main depuis l'interface n8n. Attendu : environ 200 à 250 établissements distincts, aucun SIRET en double.
+Exécuter le workflow à la main depuis l'interface n8n. Attendu : **88 établissements distincts** (mesuré le 30/09/2026), aucun SIRET en double. Les cinq codes ROME renvoient 248 lignes brutes qui se réduisent à 88 SIRET : les mêmes entreprises apparaissent sur plusieurs codes. Une estimation antérieure annonçait « 200 à 250 distincts » — elle confondait le brut et le distinct.
 
 Vérifier aussi le cas d'erreur : remplacer temporairement un code ROME par une valeur invalide (`ZZZZZ`), réexécuter, et constater que les quatre autres remontent quand même leurs résultats.
 

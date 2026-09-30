@@ -37,7 +37,7 @@ services:
       - prometheus
 
   uptime-kuma:
-    image: louislam/uptime-kuma:latest
+    image: louislam/uptime-kuma:2
     container_name: uptime-kuma
     restart: unless-stopped
     labels:
@@ -76,6 +76,16 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     ports:
       - "3002:3000"
+
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    restart: unless-stopped
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_SCHEDULE=0 0 4 * * *
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
 
 volumes:
   prometheus_data:
