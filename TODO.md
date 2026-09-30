@@ -11,7 +11,7 @@ Open work, roughly in priority order. Closed items move to `CHANGELOG.md`.
 - [ ] **Back up `N8N_ENCRYPTION_KEY` off the host** (password manager). It lives only in `/opt/automation/.env`; losing it makes every stored credential unreadable.
 - [ ] Export the n8n workflows as JSON into this repo once the first ones exist, so they survive a disk failure without a vzdump.
 - [ ] Install Tailscale in LXC 102 and keep n8n private to the tailnet. Use Funnel on a single endpoint only if an external service must call a webhook.
-- [ ] n8n idles at ~570 MB against a 1 GB limit. Watch it once scraping workflows run; raise the limit before it gets OOM-killed.
+- [ ] n8n idles at ~570 MB against a 2 GB limit (LXC has 3 GB). Watch it once scraping workflows run.
 
 ## Host and storage
 
