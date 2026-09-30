@@ -4,7 +4,8 @@ Open work, roughly in priority order. Closed items move to `CHANGELOG.md`.
 
 ## Resilience
 
-- [ ] **No backup job covers LXC 101.** It is now the only guest on the node, and nothing schedules a vzdump. Any backup that does get taken also lands on the same SSD as the data it protects, so a disk failure loses both.
+- [ ] **No backup job covers any guest.** The node now runs three (LXC 101 media, 102 automation, 103 monitoring) and nothing schedules a vzdump. Any backup that does get taken also lands on the same SSD as the data it protects, so a disk failure loses both. Deliberately deferred on 2026-09-30, with the risk understood.
+- [ ] LXC 103 sits at 192.168.1.39 while 101 and 102 are at .150 and .151. Decide on one addressing scheme, so a host is not guessed wrong in a script or a dashboard.
 
 ## Automation (LXC 102)
 
@@ -19,6 +20,24 @@ Open work, roughly in priority order. Closed items move to `CHANGELOG.md`.
 - [ ] Install Tailscale in LXC 102 and keep n8n private to the tailnet. Use Funnel on a single endpoint only if an external service must call a webhook.
 - [ ] n8n idles at ~570 MB against a 2 GB limit (LXC has 3 GB). Watch it once scraping workflows run.
 - [ ] n8n warns that internal task-runner mode is deprecated (`N8N_RUNNERS_MODE`). Move to an external runner when n8n actually removes it.
+
+## Apprenticeship search (LXC 102)
+
+- [ ] **Rotate the five search-provider keys and the Notion token.** They were pasted into a conversation during the 2026-09-30 setup. The workflow reads them from `.env`, so a rotation needs no change in n8n.
+- [ ] `TELEGRAM_CHAT_ID` is still empty in `workflows/marche-cache/.env`. Copy it from `workflows/mail-triage/.env`.
+- [ ] Execute `docs/plans/2026-09-30-07-marche-cache-n8n.md`. The idempotence check is not optional: run the workflow twice in a row and confirm the Notion row count does not move.
+- [ ] Create the francetravail.io account (open since 2026-09-17). Its "Offres d'emploi v2" API exposes a recruiter contact field that scraped job-board pages strip, and returns 150 offers per request instead of 60.
+- [ ] Going from a company name to its domain is the one step no French public API covers, and the weakest link in the pipeline. Watch how often the search providers return a directory instead of the company site, and tighten the exclusion list from real misses.
+- [ ] `jobbot-alert` (`docker-stacks/automation/workflows/`) is the earlier Python-pushes-to-webhook design, never configured and superseded by the n8n-owned pipeline. Delete it once the new workflow runs, together with the stale `workflow-jobbot-alert` entry in n8n.
+- [ ] Remove `scripts/run-jobbot.sh` and its host cron entry once n8n drives JobBot over HTTP. Nothing should trigger itself outside n8n.
+- [ ] `stash@{0}` in the JobBot repository holds the abandoned TSSR work in progress, kept as reference. Drop it once the profile work has settled.
+
+## Monitoring (LXC 103)
+
+- [ ] Prometheus retention is set to 15 days on the same single SSD as the media library. Measure what that actually costs in gigabytes once the stack has run a full cycle, and shorten it if it competes with Jellyfin for space.
+- [ ] Check whether Uptime Kuma has a notification channel configured. If not, a service can be down without anyone hearing; point it at the Telegram bot the mail triage already uses.
+- [ ] The compose file sets no Grafana credentials, so the instance relies on the first-login password prompt. Confirm the admin password was actually changed, and pin the image tags — every service in this stack tracks `latest`.
+- [ ] Decide whether Homepage and Grafana overlap enough that one of them should go. Two dashboards nobody opens is how this stack got decommissioned the first time.
 
 ## Host and storage
 
