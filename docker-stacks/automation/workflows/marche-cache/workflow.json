@@ -193,6 +193,90 @@
         "language": "javaScript",
         "jsCode": "// Normalisation des raisons sociales : clé de repli quand le SIRET manque.\n// « IWIT Systems », « IWIT SYSTEMS SAS » et « iwit-systems » donnent la même clé.\nconst FORMES = /\\b(SAS|SASU|SARL|EURL|SA|SCOP|SCI|SNC|GIE|EI|EIRL|GROUP|GROUPE|FRANCE)\\b/g;\nconst normNom = s => String(s || '')\n  .toUpperCase()\n  .normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')   // enlève les accents\n  .replace(FORMES, '')\n  .replace(/[^A-Z0-9]/g, '');\nconst normSiret = s => String(s || '').replace(/\\D/g, '');\n\nconst connu = $('Clés connues').first().json;\nconst sirets = new Set(connu.sirets);\nconst noms = new Set(connu.noms.map(normNom).filter(Boolean));\n\nconst tous = $('Dédoublonner').all();\nlet parSiret = 0;\nlet parNom = 0;\nconst nouveaux = tous.filter(i => {\n  const s = normSiret(i.json.siret);\n  const n = normNom(i.json.nom);\n  if (s && sirets.has(s)) { parSiret++; return false; }   // clé forte\n  if (n && noms.has(n)) { parNom++; return false; }       // clé de repli\n  return true;\n});\nconsole.log(`${nouveaux.length} nouvelles sur ${tous.length} — ${parSiret} connues par SIRET, ${parNom} par nom`);\nreturn nouveaux;\n"
       }
+    },
+    {
+      "id": "5b1f0c2e-7a11-4d0e-9a51-0a6c1e000009",
+      "name": "Interroger le registre",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        0
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "parameters": {
+        "method": "GET",
+        "url": "=https://recherche-entreprises.api.gouv.fr/search?q={{ $json.siret }}&per_page=1",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "recherche-alternance/1.0 (usage personnel)"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1000
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "5b1f0c2e-7a11-4d0e-9a51-0a6c1e00000a",
+      "name": "Extraire les dirigeants",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "// Fusionne la réponse du registre avec l'établissement d'origine.\n// Un SIRET introuvable ou une erreur réseau (onError: continueRegularOutput) ne plante rien :\n// l'entreprise ressort avec registre = 'introuvable' / 'erreur' et sera écartée par le filtre suivant.\nconst base = $('Filtrer les nouvelles').item.json;\nconst r = ($json.results || [])[0];\nlet registre = 'ok';\nif ($json.error) registre = 'erreur';\nelse if (!r) registre = 'introuvable';\n\n// L'établissement (SIRET de La Bonne Boîte) doit être celui que le registre a trouvé,\n// et c'est SON état qui compte : une société peut rester active alors que cet établissement est fermé.\nconst etab = (r?.matching_etablissements || []).find(e => e.siret === base.siret);\nif (registre === 'ok' && !etab) registre = 'introuvable';\n\nconst dirigeants = ((r && r.dirigeants) || [])\n  .filter(d => d.type_dirigeant === 'personne physique')\n  .map(d => `${(d.prenoms || '').trim()} ${(d.nom || '').trim()}${d.qualite ? ' — ' + d.qualite : ''}`)\n  .slice(0, 4)\n  .join(' · ');\n\n// 'A' seulement si la société ET l'établissement sont actifs ; sinon l'état qui pose problème.\nconst etat = registre === 'ok'\n  ? (etab.etat_administratif !== 'A' ? etab.etat_administratif : r.etat_administratif)\n  : '';\n\nreturn { json: {\n  ...base,\n  registre,\n  dirigeants,\n  date_creation: r?.date_creation || '',\n  etat_administratif: etat,\n  effectif_registre: r?.tranche_effectif_salarie || '',\n} };\n"
+      }
+    },
+    {
+      "id": "5b1f0c2e-7a11-4d0e-9a51-0a6c1e00000b",
+      "name": "Écarter les entreprises fermées",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        1980,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c0a1b2c3-0000-4000-8000-000000000001",
+              "leftValue": "={{ $json.etat_administratif }}",
+              "rightValue": "A",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
     }
   ],
   "connections": {
@@ -267,6 +351,39 @@
         [
           {
             "node": "Filtrer les nouvelles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtrer les nouvelles": {
+      "main": [
+        [
+          {
+            "node": "Interroger le registre",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Interroger le registre": {
+      "main": [
+        [
+          {
+            "node": "Extraire les dirigeants",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraire les dirigeants": {
+      "main": [
+        [
+          {
+            "node": "Écarter les entreprises fermées",
             "type": "main",
             "index": 0
           }
