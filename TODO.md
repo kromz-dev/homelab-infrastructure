@@ -41,7 +41,7 @@ Open work, roughly in priority order. Closed items move to `CHANGELOG.md`.
 
 ## Hardware
 
-- [ ] Document the two Intel NUC6CAYS properly: installed RAM and storage, IPs, and how they relate to the `pve` node. They run Proxmox VE but are not in a cluster with `pve`; if they form a two-node cluster between themselves, it loses quorum whenever one of them is off (a QDevice fixes that).
+- [ ] Confirm the specs of the two Intel NUC6CAYS (RAM, storage) before writing them in the README. One is the smart TV, the other is unused.
 
 ## Repository
 

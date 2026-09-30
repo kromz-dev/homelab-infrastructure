@@ -28,7 +28,8 @@ This repository documents and version-controls a personal Proxmox VE homelab: th
 | Equipment | Role |
 |---|---|
 | Dell OptiPlex 3060 | The Proxmox VE node described above |
-| 2 × Intel NUC (NUC6CAYS) | Run Proxmox VE, no workloads yet |
+| Intel NUC (NUC6CAYS) | Smart TV (media player) |
+| Intel NUC (NUC6CAYS), second unit | Spare, currently unused |
 | Linux workstation and Linux laptop | Administration, reachable over Tailscale |
 | iPhone | Mobile access over Tailscale |
 | Home router | Gateway of the `192.168.1.0/24` LAN |
