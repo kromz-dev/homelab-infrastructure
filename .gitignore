@@ -1,0 +1,22 @@
+# Secrets & Environment variables
+.env
+*.env
+.env.*
+!.env.example
+
+# SSH and Keys
+*.pem
+*.key
+*.pub
+id_rsa*
+service_account.json
+
+# Proxmox / OS
+*.qcow2
+*.iso
+*.tar.gz
+*.tmp
+.DS_Store
+
+# Logs
+*.log

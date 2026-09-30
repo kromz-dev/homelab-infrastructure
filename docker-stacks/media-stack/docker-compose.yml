@@ -1,0 +1,242 @@
+version: "3.8"
+
+networks:
+  media_network:
+    name: media_network
+    driver: bridge
+
+x-common-env: &common-env
+  PUID: ${PUID}
+  PGID: ${PGID}
+  TZ: ${TZ}
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # --- COEUR DE LA STACK ---
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    environment:
+      <<: *common-env
+      HOMEPAGE_ALLOWED_HOSTS: "*"
+    volumes:
+      - ${CONFIG_DIR}/prowlarr:/config
+    ports:
+      - ${PORT_PROWLARR}:9696
+    networks:
+      - media_network
+    restart: unless-stopped
+    logging: *default-logging
+
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: radarr
+    depends_on:
+      - qbittorrent
+    environment:
+      <<: *common-env
+      HOMEPAGE_ALLOWED_HOSTS: "*"
+    volumes:
+      - ${CONFIG_DIR}/radarr:/config
+      - /data/pool:/data:rshared
+    ports:
+      - ${PORT_RADARR}:7878
+    networks:
+      - media_network
+    restart: unless-stopped
+    logging: *default-logging
+
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr
+    depends_on:
+      - qbittorrent
+    environment:
+      <<: *common-env
+      HOMEPAGE_ALLOWED_HOSTS: "*"
+    volumes:
+      - ${CONFIG_DIR}/sonarr:/config
+      - /data/pool:/data:rshared
+    ports:
+      - ${PORT_SONARR}:8989
+    networks:
+      - media_network
+    restart: unless-stopped
+    logging: *default-logging
+
+  # --- AUTOMATISATION QUALITÉ ---
+  recyclarr:
+    image: ghcr.io/recyclarr/recyclarr:latest
+    container_name: recyclarr
+    env_file: .env
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${CONFIG_DIR}/recyclarr:/config
+    networks:
+      - media_network
+    restart: unless-stopped
+    logging: *default-logging
+
+  # --- INTERFACE UTILISATEUR ---
+  seerr:
+    image: ghcr.io/seerr-team/seerr:latest
+    container_name: seerr
+    environment:
+      <<: *common-env
+      HOMEPAGE_ALLOWED_HOSTS: "*"
+      LOG_LEVEL: info
+    volumes:
+      - ${CONFIG_DIR}/seerr:/app/config
+    ports:
+      - 5055:5055
+    networks:
+      - media_network
+    restart: unless-stopped
+    logging: *default-logging
+
+  # --- STREAMING & TRANSCODAGE ---
+  jellyfin:
+    image: lscr.io/linuxserver/jellyfin:latest
+    container_name: jellyfin
+    environment:
+      - PUID=${PUID}
+      - PGID=${RENDER_GID}
+      - TZ=${TZ}
+      - JELLYFIN_PublishedServerUrl=http://localhost:8096
+    volumes:
+      - ${CONFIG_DIR}/jellyfin:/config
+      - /data/pool:/data:ro
+    ports:
+      - ${PORT_JELLYFIN}:8096
+    devices:
+      - /dev/dri:/dev/dri
+    networks:
+      - media_network
+    restart: unless-stopped
+    logging: *default-logging
+
+  # --- UTILITAIRES ---
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    environment:
+      - LOG_LEVEL=info
+      - BROWSER_TIMEOUT=180000
+    networks:
+      - media_network
+    restart: unless-stopped
+    logging: *default-logging
+
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+    environment:
+      <<: *common-env
+      HOMEPAGE_ALLOWED_HOSTS: "*"
+      WEBUI_PORT: 8080
+    volumes:
+      - ${CONFIG_DIR}/qbittorrent:/config
+      - /data/pool:/data:rshared
+    ports:
+      - ${PORT_QBIT}:8080
+      - 6881:6881
+      - 6881:6881/udp
+    networks:
+      - media_network
+    restart: unless-stopped
+    logging: *default-logging
+
+  bazarr:
+    image: lscr.io/linuxserver/bazarr:latest
+    container_name: bazarr
+    environment:
+      <<: *common-env
+      HOMEPAGE_ALLOWED_HOSTS: "*"
+    volumes:
+      - ${CONFIG_DIR}/bazarr:/config
+      - /data/pool:/data:rshared
+    ports:
+      - ${PORT_BAZARR}:6767
+    networks:
+      - media_network
+    restart: unless-stopped
+    logging: *default-logging
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: watchtower
+    environment:
+      - WATCHTOWER_MONITOR_ONLY=true
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_INCLUDE_RESTARTING=true
+      - WATCHTOWER_POLL_INTERVAL=86400
+      - TZ=Europe/Paris
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - media_network
+    restart: unless-stopped
+    logging: *default-logging
+
+
+
+  # --- EXPORTERS MERGED ---
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: cadvisor
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    ports:
+      - "8081:8080"
+    networks:
+      - media_network
+    restart: unless-stopped
+    logging: *default-logging
+
+  qbittorrent-exporter:
+    image: esanchezm/prometheus-qbittorrent-exporter:latest
+    container_name: qbittorrent-exporter
+    ports:
+      - "8000:8000"
+    environment:
+      - QBITTORRENT_HOST=192.168.1.150
+      - QBITTORRENT_PORT=8080
+    networks:
+      - media_network
+    restart: unless-stopped
+    logging: *default-logging
+
+  speedtest-exporter:
+    image: miguelndecarvalho/speedtest-exporter:latest
+    container_name: speedtest-exporter
+    ports:
+      - "9798:9798"
+    networks:
+      - media_network
+    restart: unless-stopped
+    logging: *default-logging
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter:latest
+    container_name: blackbox-exporter
+    ports:
+      - "9115:9115"
+    networks:
+      - media_network
+    restart: unless-stopped
+    logging: *default-logging
