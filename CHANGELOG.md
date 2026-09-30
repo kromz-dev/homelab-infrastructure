@@ -1,1 +1,3 @@
 - 2026-09-30: Performed DevOps hardening (Added 2GB Swap, keyctl=1, fuse=1, qBittorrent RAM Cache, Docker PUID/PGID fixes, Memory limits on Flaresolverr).
+- 2026-09-30: Security audit of the full node (host + all guests). Revoked an over-privileged SSH key (root access from a guest LXC to the hypervisor) and an unscoped, non-expiring Proxmox API token.
+- 2026-09-30: Decommissioned Home Assistant (VM 102) and the monitoring stack (LXC 103, Prometheus/Grafana) — unused and never brought under IaC. Repository and architecture diagram updated to reflect the single-purpose Media Stack node.

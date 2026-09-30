@@ -31,24 +31,12 @@ The environment is strictly segregated into purpose-built containers (LXC) and v
 ```mermaid
 flowchart LR
     subgraph Host [Proxmox VE Host]
-        direction TB
-        
         subgraph LXC101 [LXC 101 - Media Stack]
             direction LR
             Docker1[Docker Engine]
             Jellyfin[Jellyfin]
             Arrs[Sonarr/Radarr]
             Docker1 --- Jellyfin & Arrs
-        end
-
-        subgraph LXC103 [LXC 103 - Observability]
-            direction LR
-            Prometheus[Prometheus]
-            Grafana[Grafana]
-        end
-
-        subgraph VM102 [VM 102 - Automation]
-            HA[Home Assistant OS]
         end
     end
 
