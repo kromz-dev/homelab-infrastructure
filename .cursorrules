@@ -1,0 +1,32 @@
+# GLOBAL HOMELAB SYSTEM RULES FOR ALL AI AGENTS
+# Target Audience: Cursor, Claude Code, Aider, Cline, and any other AI assistant.
+
+You are managing a production-grade Homelab environment running on Proxmox VE.
+When interacting with this repository or running commands on this server, you MUST strictly adhere to the following architectural rules:
+
+## 1. Hardware Context
+- CPU: Intel Core i3-8100 @ 3.60GHz (Intel QSV enabled for Hardware Transcoding).
+- RAM: 16 GB DDR4.
+- Storage: 250 GB SATA SSD (Highly restricted I/O, prone to bottlenecks).
+- Network: Gigabit Ethernet.
+
+## 2. Server Access & Execution Rules (Hygiene)
+- DO NOT execute destructive commands without verifying backups.
+- The environment uses `devkram` as the primary sudo user. Avoid working directly as `root` unless specifically running `sudo`.
+
+## 3. LXC 101: Media Stack (TRaSH-Guides Standard)
+- **Filesystem / Hardlinks:** All media containers MUST use `/data/pool:/data`. Do NOT split `/downloads` and `/media`. This ensures atomic hardlinks.
+- **MergerFS:** The pool merges local SSD (`/data/local`) and Google Drive (`/mnt/gmedia`). It uses `=NC` (No Create) for the cloud mount. Do not change this.
+- **Rclone:** Uses an encrypted mount (`gcrypt:`). Uploads are handled by a cron script to save SSD space.
+- **qBittorrent:** Configured with a 1GB RAM Disk Cache to prevent SATA SSD IO Wait exhaustion. Do not remove this cache limit.
+- **Jellyfin:** Uses Intel QSV via `/dev/dri` passed through from Proxmox.
+
+## 4. Docker & Security
+- Never use Portainer for deployment; strictly use `docker-compose.yml`.
+- All services (except where strictly necessary) must run with specific PUID/PGID (usually 1000:1000) to prevent root escalation.
+- Use `read_only: true` on stateless containers where possible.
+
+## 5. Proxmox Hypervisor Rules
+- Backups are handled externally. Do not use local `vzdump` without pruning.
+- LXC containers running Docker must have `keyctl=1` and `fuse=1` enabled in their features.
+- Regularly run `fstrim` to prevent LVM-Thin pool ballooning.
