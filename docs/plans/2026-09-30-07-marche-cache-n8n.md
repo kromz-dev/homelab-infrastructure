@@ -113,11 +113,34 @@ Formats vérifiés le 30/09/2026, tous en HTTP 200 sur la même requête. Les qu
 - Tous les libellés visibles (propriétés Notion, messages Telegram) en français.
 - Un workflow qui échoue doit être **bruyant** : nœud `Error Trigger` relié à Telegram, comme le fait déjà `mail-triage`.
 
+## Zéro doublon : la carte complète
+
+Exigence répétée par l'utilisateur. Chaque endroit où un doublon peut naître, sa clé, et l'état du garde-fou.
+
+| Où | Ce qui se répète | Clé | État |
+|---|---|---|---|
+| Une source, plusieurs codes ROME | même établissement sur M1801 et M1805 | SIRET | ✅ tâche 2, `Map` par SIRET en gardant le meilleur potentiel |
+| Entre sources (La Bonne Boîte + Digital113) | même entreprise vue deux fois | SIRET | ✅ même `Map`, fusion avant le filtre |
+| Digital113 → registre | deux libellés d'adhérent, un seul SIRET | SIRET | ✅ même `Map` |
+| Nouvelle exécution vs Notion | entreprise déjà enregistrée | **SIRET *ou* nom normalisé** | ✅ tâche 3, **double clé** — le SIRET seul manquerait les lignes saisies à la main |
+| Une offre publiée sur 5 sites | même poste, 5 annonces | dédoublonnage multi-critères de JobBot | ✅ existant, couvert par 41 tests |
+| Offre revue à l'exécution suivante | re-signalée | cycle de vie `first_seen` / `last_seen` | ✅ existant |
+| Offre déjà dans Notion | ligne en double | URL de l'annonce | ⏳ plan 08 |
+| Brouillon Gmail recréé | deux brouillons pour la même cible | identifiant de la cible dans le brouillon | ⏳ plan 10 |
+
+### Le cas qu'aucune clé ne résout
+
+Une même alternance est souvent publiée **par le CFA et par l'entreprise**, sous deux raisons sociales différentes. Mesuré sur les 9 employeurs déjà en base : `ESICAD Toulouse` et `ISCOD` sont des organismes de formation, `ADECCO`, `Actual` et `JOB & VOUS` des agences d'intérim.
+
+Aucune clé ne rapproche « ISCOD » de l'entreprise réelle qui accueillera l'alternant : les deux annonces ont un employeur différent, et c'est légitimement deux pistes distinctes. Le document d'objectif de l'utilisateur tranche d'ailleurs la question : « l'organisme compte peu, la plupart acceptent un candidat qui arrive avec un employeur ».
+
+Le filtre `is_training_org` du travail en cours sauvegardé (`stash@{0}`) répond à ce besoin : **écarter les organismes de formation et les agences**, plutôt que tenter de les dédoublonner. À reprendre au plan 08.
+
 ## Review Focus
 
 Cinq situations que la spec implique et qu'aucune étape n'exerce spontanément. Chacune est rattachée à la tâche qui doit la traiter.
 
-1. **Une entreprise déjà présente dans Notion** — le workflow relancé deux fois de suite ne doit créer aucun doublon. C'est la crainte explicite de l'utilisateur. → Tâche 3.
+1. **Une entreprise déjà présente dans Notion** — le workflow relancé deux fois de suite ne doit créer aucun doublon, y compris pour les lignes saisies à la main qui n'ont pas de SIRET. Double clé obligatoire : SIRET *ou* nom normalisé. → Tâche 3.
 2. **Une entreprise administrativement fermée** — le registre expose `etat_administratif` ; une entreprise cessée ne doit jamais atterrir dans la liste. → Tâche 4.
 3. **Un site web injoignable, en erreur, ou qui répond en 30 secondes** — le pipeline doit continuer avec les autres entreprises, pas s'arrêter. → Tâche 5.
 4. **Un domaine sans enregistrement MX** — il n'accepte pas de courrier ; l'entreprise doit être marquée « contact introuvable », jamais dotée d'une adresse inventée. → Tâche 5.
@@ -370,34 +393,83 @@ La réponse Notion est paginée : tant que `has_more` vaut `true`, il faut relan
 
 > Ne pas sauter la pagination. Dès 100 entreprises, une requête unique en oublierait et recréerait des doublons — exactement ce qu'on veut éviter.
 
-- [ ] **Step 2: Construire l'ensemble des SIRET connus**
+- [ ] **Step 2: Construire DEUX ensembles de clés connues, pas un seul**
+
+**Le SIRET seul ne suffit pas.** Les lignes saisies à la main par l'utilisateur n'ont pas de SIRET : la propriété a été créée le 30/09/2026, et les 2 lignes existantes (`IWIT Systems`, `We Admin IT`) l'ont vide. Un contrôle sur le SIRET seul les manquerait et recréerait une ligne pour une entreprise **où l'utilisateur a déjà postulé** — le risque n'est pas le désordre, c'est de recandidater.
+
+Vérifié le 30/09/2026 : `IWIT SYSTEMS` existe bien au registre (SIRET `52510845200026`, Toulouse, NAF 62.02B), donc elle appartient à la population que ce pipeline ratisse et peut remonter d'une source à tout moment.
 
 Nœud `Code` :
 
 ```javascript
-const connus = new Set();
+// Normalisation des raisons sociales : c'est la clé de repli quand le SIRET manque.
+// « IWIT Systems », « IWIT SYSTEMS SAS » et « iwit-systems » donnent la même clé.
+const FORMES = /\b(SAS|SASU|SARL|EURL|SA|SCOP|SCI|SNC|GIE|EI|EIRL|GROUP|GROUPE|FRANCE)\b/g;
+const normNom = s => String(s || '')
+  .toUpperCase()
+  .normalize('NFD').replace(/[̀-ͯ]/g, '')   // enlève les accents
+  .replace(FORMES, '')
+  .replace(/[^A-Z0-9]/g, '');
+
+const sirets = new Set();
+const noms = new Set();
 for (const item of $input.all()) {
   for (const page of (item.json.results || [])) {
-    const p = page.properties?.SIRET;
-    const valeur = (p?.rich_text || []).map(t => t.plain_text).join('').trim();
-    if (valeur) connus.add(valeur);
+    const p = page.properties || {};
+    const siret = (p.SIRET?.rich_text || []).map(t => t.plain_text).join('').trim();
+    if (siret) sirets.add(siret);
+    const nom = (p.Entreprise?.title || []).map(t => t.plain_text).join('').trim();
+    if (nom) noms.add(normNom(nom));
   }
 }
-return [{ json: { connus: [...connus] } }];
+return [{ json: { sirets: [...sirets], noms: [...noms] } }];
 ```
 
-- [ ] **Step 3: Filtrer**
+- [ ] **Step 3: Filtrer sur les deux clés**
 
 Nœud `Code` (« Run Once for All Items ») qui croise les deux branches :
 
 ```javascript
-const connus = new Set($('SIRET connus').first().json.connus || []);
-const nouveaux = $('Dédoublonner').all().filter(i => !connus.has(i.json.siret));
-console.log(`${nouveaux.length} nouvelles entreprises sur ${$('Dédoublonner').all().length}`);
+const FORMES = /\b(SAS|SASU|SARL|EURL|SA|SCOP|SCI|SNC|GIE|EI|EIRL|GROUP|GROUPE|FRANCE)\b/g;
+const normNom = s => String(s || '')
+  .toUpperCase()
+  .normalize('NFD').replace(/[̀-ͯ]/g, '')
+  .replace(FORMES, '')
+  .replace(/[^A-Z0-9]/g, '');
+
+const connu = $('Clés connues').first().json;
+const sirets = new Set(connu.sirets || []);
+const noms = new Set(connu.noms || []);
+
+const tous = $('Dédoublonner').all();
+const nouveaux = tous.filter(i => {
+  const j = i.json;
+  if (j.siret && sirets.has(j.siret)) return false;      // clé forte
+  if (noms.has(normNom(j.nom))) return false;            // clé de repli
+  return true;
+});
+console.log(`${nouveaux.length} nouvelles sur ${tous.length} — ${tous.length - nouveaux.length} déjà connues`);
 return nouveaux;
 ```
 
 > Adapter les noms entre `$('…')` aux noms réels des nœuds. La skill `n8n-expression-syntax` explique cette syntaxe de référence entre nœuds — la consulter, c'est la source d'erreur la plus fréquente.
+>
+> **La clé de repli peut écarter un vrai nouveau prospect** si deux entreprises distinctes portent des noms qui se normalisent pareil. C'est le bon compromis : rater une entreprise coûte moins cher que de recandidater chez une autre. Le journal affiche le décompte des deux, pour que le cas se voie.
+
+- [ ] **Step 3 bis: Renseigner le SIRET des lignes existantes**
+
+Tant que `IWIT Systems` et `We Admin IT` n'ont pas de SIRET, le dédoublonnage repose pour elles sur la clé faible. Une fois pour toutes, écrire leur SIRET — c'est une modification de contenu, donc **la seule autorisée sur une ligne existante**, et elle se fait à la main plutôt que par le workflow :
+
+```bash
+# IWIT SYSTEMS : SIRET vérifié au registre le 30/09/2026
+sudo pct exec 102 -- sh -c 'set -a; . /opt/automation/workflows/marche-cache/.env; set +a
+curl -s -o /dev/null -w "%{http_code}\n" -X PATCH "https://api.notion.com/v1/pages/<ID_DE_LA_LIGNE>" \
+  -H "Authorization: Bearer $NOTION_TOKEN" -H "Notion-Version: 2022-06-28" \
+  -H "Content-Type: application/json" \
+  -d "{\"properties\":{\"SIRET\":{\"rich_text\":[{\"text\":{\"content\":\"52510845200026\"}}]}}}"'
+```
+
+`We Admin IT` n'a **aucune correspondance au registre** (vérifié le 30/09/2026) : laisser son SIRET vide, la clé de repli sur le nom la protège.
 
 - [ ] **Step 4: Test du Review Focus n°1 — l'idempotence**
 
