@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Usage: ./deploy-workflow.sh <workflow-dir-name>
 # Fills credentials.tpl.json and workflow.json from workflows/<name>/.env and imports both
-# into the running n8n container. A workflow that was active stays active (the import
+# into the running n8n container. An optional executable pre-deploy.sh in the workflow
+# directory runs first (it may edit .env). A workflow that was active stays active (the import
 # deactivates it, so it is published again); a new one is left inactive.
 set -euo pipefail
 cd "$(dirname "$0")/workflows/${1:?workflow name}"
 [ -f .env ] || { echo "missing .env (copy .env.example)"; exit 1; }
+[ ! -x ./pre-deploy.sh ] || ./pre-deploy.sh
 set -a; . ./.env; set +a
 empty=$(grep -E '^[A-Z_]+=$' .env | cut -d= -f1 || true)
 [ -z "$empty" ] || { echo "empty values in .env: $empty"; exit 1; }
