@@ -4,14 +4,14 @@
   <img src="https://img.shields.io/badge/Debian-A81D33?style=flat-square&logo=debian&logoColor=white" />
 
   <h1>Homelab Infrastructure</h1>
-  <p>Infrastructure as Code (IaC) repository for a hyperconverged homelab environment.</p>
+  <p>Configuration, scripts and documentation for a personal Proxmox VE homelab.</p>
 </div>
 
 ---
 
 ## Overview
 
-This repository manages the configuration, deployment, and automation of a single-node Proxmox VE environment. The infrastructure follows GitOps principles, ensuring all changes to the system state are version-controlled, reproducible, and deployed via code.
+This repository documents and version-controls a personal Proxmox VE homelab: the layout of the node, the Docker stacks running in its containers, and the maintenance scripts. Changes are made by hand on the server and recorded here, so the repository is the reference for what is deployed. It is deliberately not an automated Infrastructure-as-Code pipeline: [`CHANGELOG.md`](CHANGELOG.md) records what changed and when, and [`TODO.md`](TODO.md) lists known gaps and open work.
 
 ## Hardware Specifications
 
@@ -28,11 +28,13 @@ This repository manages the configuration, deployment, and automation of a singl
 | Equipment | Role |
 |---|---|
 | Dell OptiPlex 3060 | The Proxmox VE node described above |
-| 2 × Intel NUC (NUC6CAYS) | Not part of the Proxmox node yet; role to be documented |
+| 2 × Intel NUC (NUC6CAYS) | Run Proxmox VE, no workloads yet |
 | Linux workstation and Linux laptop | Administration, reachable over Tailscale |
 | iPhone | Mobile access over Tailscale |
 | Home router | Gateway of the `192.168.1.0/24` LAN |
 | Google Drive (5 TB), encrypted with rclone | Cold storage tier of the media pool |
+
+The Proxmox node documented in this repository is standalone: it is not part of a cluster.
 
 ## Architecture Topology
 
@@ -77,14 +79,32 @@ flowchart LR
 
 LXC 102 is deliberately separate from the media stack: a runaway workflow cannot starve Jellyfin, and it runs unprivileged since it needs no device passthrough.
 
+## Automation: mail triage
+
+An n8n workflow (LXC 102) watches a mailbox over IMAP and notifies on Telegram only when a mail is worth attention. A local filter runs first, so the LLM (Groq, free plan) only sees what the filter cannot decide.
+
+```mermaid
+flowchart LR
+    Mail[New mail via IMAP] --> Filter{Local filter}
+    Filter -->|Priority sender| Notify[Telegram alert]
+    Filter -->|Newsletter| Digest[(Evening digest)]
+    Filter -->|Other| AI[LLM judges importance]
+    AI -->|Important| Notify
+    AI -->|Not important| Digest
+    Digest --> Summary[Daily Telegram summary]
+```
+
+The mailbox is never modified. If the LLM is unavailable the mail is notified anyway, a failed execution sends an alert, and the daily summary doubles as a heartbeat. Workflow, credential template and deployment script live in [`docker-stacks/automation/`](docker-stacks/automation/); secrets stay in a git-ignored `.env` per workflow.
+
 ## Directory Structure
 
 - `ai-skills/` - Custom behavioral instructions for AI agents operating in this workspace.
-- `docker-stacks/` - Compose definitions for containerized services (`media-stack/` in LXC 101, `automation/` in LXC 102).
+- `docker-stacks/` - Compose definitions for containerized services (`media-stack/` in LXC 101, `automation/` with its n8n workflows in LXC 102).
 - `scripts/` - Host-level maintenance scripts (SSD trim, encrypted cloud offload).
+- `CHANGELOG.md` / `TODO.md` - What changed, and what is still open.
 
 ## Core Design Principles
 
-1. **Infrastructure as Code (IaC):** Server modifications are performed via configuration files, not manual command-line execution.
-2. **Immutability & Least Privilege:** Containers utilize read-only mounts where possible. The `root` account is disabled for remote access, relying exclusively on an unprivileged `sudoer` account with SSH keys.
+1. **The repository is the record:** every change to the server is written down here, including known gaps, so the documentation never claims more than what runs.
+2. **Least Privilege:** Containers utilize read-only mounts where possible, the automation container runs unprivileged, and secrets never enter the repository (`.env` files are git-ignored). The `root` account is disabled for remote access, relying exclusively on an unprivileged `sudoer` account with SSH keys.
 3. **Storage Efficiency:** Media management utilizes a hybrid local/cloud approach via MergerFS and Rclone. Local storage handles write-intensive operations, while cold data is asynchronously offloaded to cloud storage.

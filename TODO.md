@@ -41,11 +41,10 @@ Open work, roughly in priority order. Closed items move to `CHANGELOG.md`.
 
 ## Hardware
 
-- [ ] Document the two Intel NUC6CAYS: role, OS, IP, installed RAM and storage, and whether they join the tailnet. Confirm their specs on the machines themselves before writing them in the README.
+- [ ] Document the two Intel NUC6CAYS properly: installed RAM and storage, IPs, and how they relate to the `pve` node. They run Proxmox VE but are not in a cluster with `pve`; if they form a two-node cluster between themselves, it loses quorum whenever one of them is off (a QDevice fixes that).
 
 ## Repository
 
 - [ ] The three AI-skill symlinks use absolute paths, so they break for anyone who clones the repo. Make them relative.
 - [ ] Decide whether `.github/skills/` earns its place — it is not a convention GitHub reads.
-- [ ] Revisit the README's "Infrastructure as Code / GitOps" framing now that the playbook is gone and scripts are deployed by hand.
 - [ ] Reword the `read_only: true` rule in `.cursorrules`. It is unrealistic for linuxserver.io images, whose s6-overlay writes inside the container at startup.
