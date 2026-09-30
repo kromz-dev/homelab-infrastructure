@@ -22,7 +22,8 @@
       },
       "credentials": {
         "imap": {
-          "name": "Gmail IMAP"
+          "name": "Gmail IMAP",
+          "id": "cred-mail-imap"
         }
       }
     },
@@ -63,7 +64,8 @@
       },
       "credentials": {
         "httpHeaderAuth": {
-          "name": "Groq API"
+          "name": "Groq API",
+          "id": "cred-mail-groq"
         }
       }
     },
@@ -121,7 +123,7 @@
         -80
       ],
       "parameters": {
-        "chatId": "REMPLACER_PAR_TON_CHAT_ID",
+        "chatId": "${TELEGRAM_CHAT_ID}",
         "text": "={{ $json.msg }}",
         "additionalFields": {
           "appendAttribution": false
@@ -129,7 +131,8 @@
       },
       "credentials": {
         "telegramApi": {
-          "name": "Telegram bot"
+          "name": "Telegram bot",
+          "id": "cred-mail-telegram"
         }
       }
     }
