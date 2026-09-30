@@ -1,0 +1,154 @@
+{
+  "id": "marche-cache",
+  "name": "Marché caché TSSR — entreprises qui embauchent en informatique",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Paris"
+  },
+  "nodes": [
+    {
+      "id": "5b1f0c2e-7a11-4d0e-9a51-0a6c1e000001",
+      "name": "Chaque lundi 7h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * 1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "5b1f0c2e-7a11-4d0e-9a51-0a6c1e000005",
+      "name": "Lancement manuel",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        160
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "5b1f0c2e-7a11-4d0e-9a51-0a6c1e000002",
+      "name": "Codes ROME",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// 5 codes ROME couvrant les métiers systèmes, réseaux et support.\n// Volumes constatés le 30/09/2026 à 60 km de Toulouse : 74, 78, 66, 15, 15.\nconst ROMES = [\n  { code: 'M1801', libelle: 'Administration de systèmes d\\'information' },\n  { code: 'M1802', libelle: 'Expertise et support en systèmes d\\'information' },\n  { code: 'M1805', libelle: 'Études et développement informatique' },\n  { code: 'M1810', libelle: 'Production et exploitation de systèmes d\\'information' },\n  { code: 'I1401', libelle: 'Maintenance informatique et bureautique' },\n];\nconst CITYCODE = '31555';   // Toulouse\nconst DISTANCE = 60;        // km\nreturn ROMES.map(r => ({ json: { ...r, citycode: CITYCODE, distance: DISTANCE } }));\n"
+      }
+    },
+    {
+      "id": "5b1f0c2e-7a11-4d0e-9a51-0a6c1e000003",
+      "name": "La Bonne Boîte",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        0
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "parameters": {
+        "method": "GET",
+        "url": "=https://labonneboite.francetravail.fr/api/v2/search?rome={{ $json.code }}&citycode={{ $json.citycode }}&distance={{ $json.distance }}&page=1&page_size=100&sort_by=romes.hiring_potential&sort_direction=desc",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "recherche-alternance/1.0 (usage personnel)"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1000
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "5b1f0c2e-7a11-4d0e-9a51-0a6c1e000004",
+      "name": "Dédoublonner",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Un même établissement peut remonter sur plusieurs codes ROME : on garde\n// celui qui a le meilleur potentiel d'embauche.\nconst parSiret = new Map();\nlet enEchec = 0;\nfor (const item of $input.all()) {\n  // Un code ROME en échec (onError: continueRegularOutput) ressort sans `items` : on le signale et on continue.\n  if (!Array.isArray(item.json.items)) { enEchec++; continue; }\n  for (const e of item.json.items) {\n    if (!e.siret) continue;\n    const existant = parSiret.get(e.siret);\n    const potentiel = Number(e.hiring_potential) || 0;\n    if (existant && existant.potentiel >= potentiel) {\n      if (!existant.romes.includes(e.rome)) existant.romes.push(e.rome);\n      continue;\n    }\n    parSiret.set(e.siret, {\n      siret: e.siret,\n      nom: e.company_name || '',\n      ville: e.city || '',\n      citycode: e.citycode || '',\n      lat: e.location?.lat ?? null,\n      lon: e.location?.lon ?? null,\n      effectif: [e.headcount_min, e.headcount_max].filter(v => v !== null && v !== undefined).join('-'),\n      naf_label: e.naf_label || '',\n      potentiel: Math.round(potentiel * 10) / 10,\n      romes: existant ? [...existant.romes, e.rome] : [e.rome],\n    });\n  }\n}\nconsole.log(`${parSiret.size} établissements distincts — ${enEchec} code(s) ROME en échec sur ${$input.all().length}`);\nreturn [...parSiret.values()].map(json => ({ json }));\n"
+      }
+    }
+  ],
+  "connections": {
+    "Chaque lundi 7h": {
+      "main": [
+        [
+          {
+            "node": "Codes ROME",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lancement manuel": {
+      "main": [
+        [
+          {
+            "node": "Codes ROME",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Codes ROME": {
+      "main": [
+        [
+          {
+            "node": "La Bonne Boîte",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "La Bonne Boîte": {
+      "main": [
+        [
+          {
+            "node": "Dédoublonner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
