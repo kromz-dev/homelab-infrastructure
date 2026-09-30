@@ -1,12 +1,7 @@
-version: '3.8'
 networks:
   media_network:
     name: media_network
     driver: bridge
-x-common-env:
-  PUID: ${PUID}
-  PGID: ${PGID}
-  TZ: ${TZ}
 x-logging: &id001
   driver: json-file
   options:
@@ -20,7 +15,6 @@ services:
       PUID: ${PUID}
       PGID: ${PGID}
       TZ: ${TZ}
-      HOMEPAGE_ALLOWED_HOSTS: '*'
     volumes:
     - ${CONFIG_DIR}/prowlarr:/config
     ports:
@@ -38,7 +32,6 @@ services:
       PUID: ${PUID}
       PGID: ${PGID}
       TZ: ${TZ}
-      HOMEPAGE_ALLOWED_HOSTS: '*'
     volumes:
     - ${CONFIG_DIR}/radarr:/config
     - /data/pool:/data:rshared
@@ -57,7 +50,6 @@ services:
       PUID: ${PUID}
       PGID: ${PGID}
       TZ: ${TZ}
-      HOMEPAGE_ALLOWED_HOSTS: '*'
     volumes:
     - ${CONFIG_DIR}/sonarr:/config
     - /data/pool:/data:rshared
@@ -88,7 +80,6 @@ services:
       PUID: ${PUID}
       PGID: ${PGID}
       TZ: ${TZ}
-      HOMEPAGE_ALLOWED_HOSTS: '*'
       LOG_LEVEL: info
     volumes:
     - ${CONFIG_DIR}/seerr:/app/config
@@ -146,7 +137,6 @@ services:
       PUID: ${PUID}
       PGID: ${PGID}
       TZ: ${TZ}
-      HOMEPAGE_ALLOWED_HOSTS: '*'
       WEBUI_PORT: 8080
     volumes:
     - ${CONFIG_DIR}/qbittorrent:/config
@@ -166,71 +156,11 @@ services:
       PUID: ${PUID}
       PGID: ${PGID}
       TZ: ${TZ}
-      HOMEPAGE_ALLOWED_HOSTS: '*'
     volumes:
     - ${CONFIG_DIR}/bazarr:/config
     - /data/pool:/data:rshared
     ports:
     - ${PORT_BAZARR}:6767
-    networks:
-    - media_network
-    restart: unless-stopped
-    logging: *id001
-  watchtower:
-    image: containrrr/watchtower:latest
-    container_name: watchtower
-    environment:
-    - WATCHTOWER_MONITOR_ONLY=true
-    - WATCHTOWER_CLEANUP=true
-    - WATCHTOWER_INCLUDE_RESTARTING=true
-    - WATCHTOWER_POLL_INTERVAL=86400
-    - TZ=Europe/Paris
-    volumes:
-    - /var/run/docker.sock:/var/run/docker.sock:ro
-    networks:
-    - media_network
-    restart: unless-stopped
-    logging: *id001
-  cadvisor:
-    image: gcr.io/cadvisor/cadvisor:v0.49.1
-    container_name: cadvisor
-    volumes:
-    - /:/rootfs:ro
-    - /var/run:/var/run:ro
-    - /sys:/sys:ro
-    - /var/lib/docker/:/var/lib/docker:ro
-    ports:
-    - 8081:8080
-    networks:
-    - media_network
-    restart: unless-stopped
-    logging: *id001
-  qbittorrent-exporter:
-    image: esanchezm/prometheus-qbittorrent-exporter:latest
-    container_name: qbittorrent-exporter
-    ports:
-    - 8000:8000
-    environment:
-    - QBITTORRENT_HOST=192.168.1.150
-    - QBITTORRENT_PORT=8080
-    networks:
-    - media_network
-    restart: unless-stopped
-    logging: *id001
-  speedtest-exporter:
-    image: miguelndecarvalho/speedtest-exporter:latest
-    container_name: speedtest-exporter
-    ports:
-    - 9798:9798
-    networks:
-    - media_network
-    restart: unless-stopped
-    logging: *id001
-  blackbox-exporter:
-    image: prom/blackbox-exporter:latest
-    container_name: blackbox-exporter
-    ports:
-    - 9115:9115
     networks:
     - media_network
     restart: unless-stopped
