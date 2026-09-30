@@ -82,18 +82,30 @@ Docker n'existe **que** dans les conteneurs, pas sur l'hôte.
 ### En cours à la fin de la session
 
 **Plan 07** — `docs/plans/2026-09-30-07-marche-cache-n8n.md`, le pipeline n8n du marché caché.
-Un sous-agent traitait les tâches 1 et 2 (credentials, puis collecte La Bonne Boîte). **Vérifier
-l'état réel avant de continuer** : `git log --oneline` dans les deux dépôts, `./jb pytest -q`,
-et la liste des workflows n8n.
 
-Les tâches 3 à 6 restent : dédoublonnage double clé, enrichissement registre, nœud contact,
-annuaire Digital113.
+**Tâches 1 et 2 faites et vérifiées** (commits `f228314` et `5c6fd7d`) : credentials Notion et
+les 5 moteurs versionnés en gabarits, collecte La Bonne Boîte sur les 5 codes ROME, dédoublonnage
+par SIRET. Le workflow `marche-cache` est **importé dans n8n mais non activé**. Notion n'a reçu
+aucune écriture : toujours exactement 2 lignes. `mail-triage` tourne toujours.
+
+**Mesure réelle : 88 établissements distincts** (248 lignes brutes sur les 5 codes ROME). Une
+estimation antérieure du plan annonçait 200 à 250 — elle confondait brut et distinct. Le plan est
+corrigé.
+
+**Il reste les tâches 3 à 6** : dédoublonnage à double clé contre Notion, enrichissement par le
+registre, nœud contact, annuaire Digital113. **Lire d'abord la section « Pièges du déploiement
+n8n » du plan 07** : quatre écueils y sont consignés, dont deux qui casseraient silencieusement
+les tâches suivantes (`${VAR}` contre `$env.`, et les noms de nœuds entre `$('…')`).
+
+Avant de reprendre, vérifier l'état réel : `git log --oneline` dans les deux dépôts,
+`./jb pytest -q`, et `sudo pct exec 102 -- docker exec n8n n8n list:workflow 2>&1 | cat`.
 
 ### Ensuite
 
 | Plan | Contenu |
 |---|---|
 | 08 | Offres : API France Travail et La Bonne Alternance, JobBot appelé en HTTP. Reprendre le filtre anti-organismes de formation du `stash@{0}` de JobBot |
+| — | Ménage n8n : `workflow-jobbot-alert` (« JobBot - Ingestion ») est **actif** mais orphelin — c'est l'ancien pont Python → webhook, plus rien ne l'appelle depuis la suppression du cron. Le désactiver et le supprimer, avec `TEST erreur` et `My workflow`. La CLI ne sait pas supprimer, il faut l'interface |
 | 09 | Qualification Groq en 3 étages — voir les quotas plus bas |
 | 10 | Brouillons Gmail, jamais d'envoi |
 | 11 | Rappel Telegram du lundi : brouillons prêts, relances dues |
