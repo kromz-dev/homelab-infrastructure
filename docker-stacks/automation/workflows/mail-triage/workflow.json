@@ -37,7 +37,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "const m = $input.first().json;\nconst text = (m.textPlain || m.text || '').replace(/\\s+/g, ' ').slice(0, 1500);\nconst from = m.from?.text || m.from || '';\nconst subject = m.subject || '';\nreturn [{ json: { from, subject, body: {\n  model: 'llama-3.3-70b-versatile',\n  temperature: 0,\n  response_format: { type: 'json_object' },\n  messages: [\n    { role: 'system', content: \"Tu tries les mails de Kram, qui cherche : une alternance TSSR (syst\\u00e8mes/r\\u00e9seaux, Toulouse), des missions d'int\\u00e9rim aide-soignant (FFAS/ASH), et des clients pour son activit\\u00e9 de prestataire informatique.\\n\\nIMPORTANT = exige une action ou une r\\u00e9ponse de sa part : recruteurs, entreprises, \\u00e9coles ou organismes de formation, agences d'int\\u00e9rim, clients ou prospects, plateformes freelance (Malt, Contra, freelancermap) quand c'est une vraie personne ou une mission, administration et finances (France Travail, URSSAF, imp\\u00f4ts, banque, assurance), s\\u00e9curit\\u00e9 d'un compte, livraison ou rendez-vous \\u00e0 venir.\\nPAS IMPORTANT = newsletters, promotions, r\\u00e9seaux sociaux, notifications automatiques sans action \\u00e0 faire, re\\u00e7us et confirmations sans suite.\\n\\nDans le doute, r\\u00e9ponds important=true : rater un mail important co\\u00fbte bien plus cher qu'une notification en trop.\\nR\\u00e9ponds UNIQUEMENT en JSON : {\\\"important\\\": true|false, \\\"reason\\\": \\\"15 mots maximum\\\"}\" },\n    { role: 'user', content: `De: ${from}\\nObjet: ${subject}\\n\\n${text}` }\n  ]\n} } }];"
+        "jsCode": "const m = $input.first().json;\nconst text = (m.textPlain || m.text || '').replace(/\\s+/g, ' ').slice(0, 1500);\nconst from = m.from?.text || m.from || '';\nconst subject = m.subject || '';\nreturn [{ json: { from, subject, body: {\n  model: 'openai/gpt-oss-120b',\n  reasoning_effort: 'low',\n  temperature: 0,\n  response_format: { type: 'json_object' },\n  messages: [\n    { role: 'system', content: \"Tu tries les mails de Kram, qui cherche : une alternance TSSR (syst\\u00e8mes/r\\u00e9seaux, Toulouse), des missions d'int\\u00e9rim aide-soignant (FFAS/ASH), et des clients pour son activit\\u00e9 de prestataire informatique.\\n\\nIMPORTANT = exige une action ou une r\\u00e9ponse de sa part : recruteurs, entreprises, \\u00e9coles ou organismes de formation, agences d'int\\u00e9rim, clients ou prospects, plateformes freelance (Malt, Contra, freelancermap) quand c'est une vraie personne ou une mission, administration et finances (France Travail, URSSAF, imp\\u00f4ts, banque, assurance), s\\u00e9curit\\u00e9 d'un compte, livraison ou rendez-vous \\u00e0 venir.\\nPAS IMPORTANT = newsletters, promotions, r\\u00e9seaux sociaux, notifications automatiques sans action \\u00e0 faire, re\\u00e7us et confirmations sans suite.\\n\\nDans le doute, r\\u00e9ponds important=true : rater un mail important co\\u00fbte bien plus cher qu'une notification en trop.\\nR\\u00e9ponds UNIQUEMENT en JSON, raison écrite en français : {\\\"important\\\": true|false, \\\"reason\\\": \\\"15 mots maximum\\\"}\" },\n    { role: 'user', content: `De: ${from}\\nObjet: ${subject}\\n\\n${text}` }\n  ]\n} } }];"
       }
     },
     {
@@ -67,7 +67,10 @@
           "name": "Groq API",
           "id": "cred-mail-groq"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     },
     {
       "id": "n4",
