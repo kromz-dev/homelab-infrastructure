@@ -26,3 +26,7 @@ credentials.json
 
 # Python virtualenvs
 .venv/
+
+# Dozzle (et tout fichier de secrets hors .env)
+.dozzle_secrets
+*_secrets

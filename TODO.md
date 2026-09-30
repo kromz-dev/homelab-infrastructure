@@ -25,6 +25,7 @@ Open work, roughly in priority order. Closed items move to `CHANGELOG.md`.
 
 - [ ] **Rotate the five search-provider keys and the Notion token.** They were pasted into a conversation during the 2026-09-30 setup. The workflow reads them from `.env`, so a rotation needs no change in n8n.
 - [ ] `TELEGRAM_CHAT_ID` is still empty in `workflows/marche-cache/.env`. Copy it from `workflows/mail-triage/.env`.
+- [ ] **A company whose registry lookup fails is dropped silently** in `marche-cache`. A sustained 429 after three retries would make valid companies disappear without a word. Count the items leaving `Extraire les dirigeants` with `registre != 'ok'` and surface it in the Telegram summary (task 5).
 - [ ] Execute `docs/plans/2026-09-30-07-marche-cache-n8n.md`. The idempotence check is not optional: run the workflow twice in a row and confirm the Notion row count does not move.
 - [ ] Create the francetravail.io account (open since 2026-09-17). Its "Offres d'emploi v2" API exposes a recruiter contact field that scraped job-board pages strip, and returns 150 offers per request instead of 60.
 - [ ] Going from a company name to its domain is the one step no French public API covers, and the weakest link in the pipeline. Watch how often the search providers return a directory instead of the company site, and tighten the exclusion list from real misses.
