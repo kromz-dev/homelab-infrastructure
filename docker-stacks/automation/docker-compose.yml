@@ -26,5 +26,24 @@ services:
       resources:
         limits:
           memory: 2G
+  jobbot-tssr:
+    build:
+      context: /opt/dev/jobbot
+    container_name: jobbot-tssr
+    environment:
+      TZ: ${TZ}
+      JOBBOT_PROFILE: tssr-alternance
+      JOBBOT_DATA: /data
+    volumes:
+    - jobbot_tssr_data:/data
+    ports:
+    - ${PORT_JOBBOT_TSSR:-8766}:8765
+    restart: unless-stopped
+    logging: *logging
+    deploy:
+      resources:
+        limits:
+          memory: 1G
 volumes:
   n8n_data:
+  jobbot_tssr_data:
