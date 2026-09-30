@@ -1,40 +1,80 @@
-# Monitoring Stack
+# Observability & Monitoring Stack 👁️
 
-Observability for the homelab, deployed to LXC 103 (`monitoring`, 192.168.1.39, unprivileged,
-2 cores / 2 GB / 8 GB).
+> Ultimate Homelab Command Center with Performance Metrics, Alerting, Log Aggregation, and an interactive Dashboard.
 
-## Services
+## 🚀 Quick Start
 
-| Service | Port | Role |
-|---|---|---|
-| Homepage | 3002 | Landing dashboard for every service on the node |
-| Grafana | 3000 | Dashboards over the Prometheus data |
-| Prometheus | 9090 | Metrics storage and scraping |
-| Uptime Kuma | 3001 | Availability checks (ping / HTTP), with its own alerting |
-| cAdvisor | 8080 | Per-container CPU, memory and I/O metrics |
+1. Clone the repository and navigate to this folder.
+2. Ensure you have copied `homepage/services.example.yaml` to `homepage/services.yaml` and filled in your API keys.
+3. Generate `.dozzle_secrets` in your other stacks for secure log forwarding.
+4. Run the stack:
+   ```bash
+   docker compose up -d
+   ```
 
-## Deployment
+## 🏗️ Architecture
 
-```sh
-docker compose up -d
+```mermaid
+flowchart TD
+    subgraph LXC_103 [LXC 103: Monitoring]
+        H[Homepage :3002]
+        K[Uptime Kuma :3001]
+        G[Grafana :3000]
+        P[Prometheus :9090]
+        D[Dozzle Master :8888]
+        W[Watchtower]
+    end
+
+    subgraph LXC_101 [LXC 101: Media]
+        DA1[Dozzle Agent :7007]
+        CA1[cAdvisor :9080]
+        M[Media Apps]
+    end
+
+    subgraph LXC_102 [LXC 102: Automation]
+        DA2[Dozzle Agent :7007]
+        CA2[cAdvisor :9080]
+        A[n8n & Bots]
+    end
+
+    Host[Proxmox Host :9100\nNode Exporter]
+
+    %% Connections
+    P -->|Scrapes| Host
+    P -->|Scrapes| CA1
+    P -->|Scrapes| CA2
+    G -->|Reads| P
+    D -->|mTLS| DA1
+    D -->|mTLS| DA2
+    H -->|API Calls| M
+    H -->|API Calls| K
 ```
 
-Prometheus scrape targets are in [`prometheus.yml`](prometheus.yml).
+## ✨ Features
 
-## Why this stack exists twice
+- **Grafana & Prometheus**: Real-time performance metrics (Hardware & Containers).
+  - *Dashboard 1860*: Proxmox Node metrics.
+  - *Dashboard 14282*: Docker cAdvisor metrics.
+- **Uptime Kuma**: Active blackbox monitoring (Ping/HTTP) with notification routing.
+- **Dozzle Multi-Node**: Real-time centralized log viewing across all LXCs via mTLS.
+- **Homepage**: 3D glass-morphism command center linking all services.
+- **Watchtower**: Silent auto-updating for the monitoring stack at 4:00 AM daily.
 
-It was decommissioned on 2026-09-30 as unused, then reinstated the same day. The reasoning
-changed with the node: at the time it watched a single media stack, which a glance at the shell
-covered. The node now runs three containers and two long-lived automations — a mail triage and
-an apprenticeship search — where a silent failure is not something anyone notices by looking.
+## ⚙️ Configuration
 
-cAdvisor was removed in that first pass because it cost real I/O on the single SSD (continuous
-`/var/lib/docker` walks) with no consumer to justify it. It is back because Prometheus is back,
-and because container memory is now worth watching: n8n idles around 570 MB against a 2 GB
-limit.
+### Secret Management
+⚠️ **Zero Secrets in Git**: 
+- All `.env` and `.dozzle_secrets` files are strictly ignored.
+- Homepage configuration (`services.yaml`) is git-ignored. Use `services.example.yaml` as your template.
 
-## Known gaps
+### Adding a new Dozzle Agent
+To link a new node to the Dozzle Master, create a `.dozzle_secrets` file in the target node's stack containing `DOZZLE_CERT_PEM` and `DOZZLE_KEY_PEM` to enforce mTLS.
 
-Prometheus retention is capped at 15 days (`--storage.tsdb.retention.time`), on the same single
-SSD as the media library — what that costs in gigabytes still has to be measured over a full
-cycle. Every image here tracks `latest`. See [`../../TODO.md`](../../TODO.md).
+## 📚 Documentation
+
+- [Prometheus Configuration](prometheus.yml)
+- [Homepage Templates](homepage/services.example.yaml)
+- [Grafana Provisioning](docker-compose.yml)
+
+## 📄 License
+MIT

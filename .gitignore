@@ -30,3 +30,4 @@ credentials.json
 # Dozzle (et tout fichier de secrets hors .env)
 .dozzle_secrets
 *_secrets
+.dozzle_secrets

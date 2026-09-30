@@ -44,6 +44,17 @@ services:
       resources:
         limits:
           memory: 1G
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: dozzle-agent
+    command: agent
+    volumes:
+    - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+    - 7007:7007
+    restart: unless-stopped
+    logging: *logging
+
 volumes:
   n8n_data:
   jobbot_tssr_data:

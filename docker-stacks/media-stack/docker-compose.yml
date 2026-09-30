@@ -165,3 +165,16 @@ services:
     - media_network
     restart: unless-stopped
     logging: *id001
+
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: dozzle-agent
+    command: agent
+    volumes:
+    - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+    - 7007:7007
+    networks:
+    - media_network
+    restart: unless-stopped
+    logging: *id001
