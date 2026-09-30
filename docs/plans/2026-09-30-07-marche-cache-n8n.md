@@ -33,18 +33,73 @@ Tout ce qui suit a été testé en direct, pas supposé.
 | n8n **n'a aucun accès Notion** | Aucun credential Notion ; `NOTION_DATABASE_ID` jamais renseigné |
 | OpenStreetMap n'est pas fiable pour le site web | Overpass → HTTP 504 sous charge |
 
-## Prérequis utilisateur (à faire avant la tâche 2)
+## Prérequis — faits le 30/09/2026
 
-Sans ces deux éléments, le pipeline ne peut pas écrire son résultat. Environ 15 minutes.
+Tout est en place et vérifié. Rien à faire avant de commencer.
 
-1. **Jeton d'intégration Notion.** Sur <https://www.notion.so/my-integrations>, créer une intégration interne (nom : `n8n homelab`), copier le jeton `ntn_…`. Puis, dans Notion, ouvrir la page qui contiendra la base et la partager avec cette intégration (menu `…` → `Connexions` → `n8n homelab`). **Sans ce partage, l'API renvoie 404 même avec un jeton valide.**
-2. **Fournisseur de recherche web**, pour trouver le nom de domaine d'une entreprise à partir de sa raison sociale. C'est le seul maillon qu'aucune API publique française ne couvre — vérifié : le registre ne donne pas le site. Choisir l'un des deux :
-   - **Brave Search API** — offre gratuite, ~2 000 requêtes/mois, clé immédiate sur <https://brave.com/search/api/>. **Recommandé** : le quota couvre très largement l'usage.
-   - **Google Programmable Search** — 100 requêtes/jour gratuites, demande une clé API et un identifiant de moteur.
+| Élément | État |
+|---|---|
+| Jeton Notion | ✅ intégration `n8n-alternance`, espace « KACED KAMAL's Space » — `GET /v1/users/me` → 200 |
+| Base cible | ✅ **« Candidatures IT »**, `d24e8ee1-80ce-4cb6-848c-45e44be4a096` — 2 lignes existantes, 17 propriétés |
+| Propriété `SIRET` | ✅ ajoutée le 30/09/2026 (type texte) : c'est **la clé anti-doublon** |
+| Serper | ✅ `POST https://google.serper.dev/search` → 200, 1 crédit par requête |
+| Tavily | ✅ `POST https://api.tavily.com/search` → 200 |
+| Firecrawl | ✅ `POST https://api.firecrawl.dev/v1/search` → 200 |
+| Exa | ✅ `POST https://api.exa.ai/search` → 200 |
+| Brave | ✅ 200, mais **payant** — dernier recours uniquement |
+| Secrets | ✅ `/opt/automation/workflows/marche-cache/.env`, `chmod 600`, jamais versionné |
 
-   Volume réel attendu : environ 250 requêtes au premier passage, puis quelques dizaines par semaine.
+**Les clés de cette première installation doivent être révoquées et régénérées** une fois le pipeline validé : elles ont transité par une conversation. Prévoir la rotation dans le `.env`, le workflow lit les variables, il n'y a rien à modifier dans n8n.
 
-3. *(Optionnel, recommandé)* **Compte francetravail.io**, noté depuis le 17/09/2026 dans `jobbot/progress/A_FAIRE.md`. L'API « Offres d'emploi v2 » expose un champ de contact du recruteur que les pages web masquent. Utile au plan 08, pas bloquant ici.
+*(Optionnel, plan 08)* **Compte francetravail.io**, noté depuis le 17/09/2026 dans `jobbot/progress/A_FAIRE.md`. L'API « Offres d'emploi v2 » expose un champ de contact du recruteur que les pages web masquent.
+
+## La base Notion cible — schéma réel
+
+**On écrit dans « Candidatures IT », pas dans une base séparée.** Ses valeurs de `Statut` (`À analyser`, `À candidater`) et de `Source` (`Candidature spontanée`, `Réseau`) montrent qu'elle est conçue pour tenir tout l'entonnoir, du prospect brut à l'embauche.
+
+Propriétés utilisées par ce workflow :
+
+| Propriété | Type | Valeur écrite |
+|---|---|---|
+| `Entreprise` | Titre | Raison sociale |
+| `SIRET` | Texte | **Clé anti-doublon.** Jamais vide |
+| `Statut` | Select | `À analyser` pour tout nouveau prospect |
+| `Source` | Select | `Candidature spontanée` (La Bonne Boîte) · `Réseau` (Digital113) |
+| `Localisation` | Texte | Commune |
+| `Contact` | Texte | Décideurs trouvés : noms et rôles |
+| `E-mail` | Texte | Adresse **publiée**, ou vide. Jamais construite |
+| `Téléphone` | Texte | Si publié, sinon vide |
+| `Adéquation avec le TSSR` | Select | `Forte` · `Moyenne` · `Faible` |
+| `Lien de l'offre` | URL | Le site de l'entreprise (pas d'offre à ce stade) |
+| `Notes` | Texte | Dirigeants, effectif, secteur, potentiel, confiance du contact |
+| `Date de découverte` | Date | Date d'exécution |
+| `Prochaine action` | Texte | `Chercher le contact à la main` si `E-mail` est vide |
+
+> **Ne jamais écrire dans `Date de candidature`, `Date de relance` ni `Créé le`** : ce sont les champs que l'utilisateur remplit lui-même.
+>
+> **Ne jamais modifier ni archiver une ligne existante.** Le workflow ne fait que des créations. Les 2 lignes présentes au 30/09/2026 (`IWIT Systems`, `We Admin IT`) sont saisies à la main et intouchables.
+>
+> `Adéquation avec le TSSR` porte ce nom exact, avec « avec le TSSR ». Ne pas l'abréger.
+
+## Chaîne de recherche avec bascule automatique
+
+Le domaine d'une entreprise est le seul élément qu'aucune API publique française ne donne (vérifié : `siege.site_web` vaut `None`). Il faut donc un moteur de recherche, et **aucun fournisseur ne doit être un point de panne unique**.
+
+`SEARCH_ORDER` dans le `.env` pilote l'ordre : `serper,tavily,firecrawl,exa,brave`. Les quotas gratuits mensuels commandent cet ordre — Serper 2 500, Tavily 1 000, Firecrawl 1 000, Exa en crédits offerts, Brave payant en dernier.
+
+Formats vérifiés le 30/09/2026, tous en HTTP 200 sur la même requête. Les quatre ont renvoyé le bon domaine en **première position** ; Tavily et Exa sont les plus propres sur les suivantes, Serper et Firecrawl y mêlent annuaires et réseaux sociaux — sans conséquence puisqu'on ne retient que le premier résultat non-annuaire.
+
+| Fournisseur | Endpoint | Authentification | Corps | Chemin des résultats |
+|---|---|---|---|---|
+| serper | `POST https://google.serper.dev/search` | en-tête `X-API-KEY` | `{"q":…,"num":5,"gl":"fr","hl":"fr"}` | `organic[].link` |
+| tavily | `POST https://api.tavily.com/search` | en-tête `Authorization: Bearer` | `{"query":…,"max_results":5}` | `results[].url` |
+| firecrawl | `POST https://api.firecrawl.dev/v1/search` | en-tête `Authorization: Bearer` | `{"query":…,"limit":5}` | `data[].url` |
+| exa | `POST https://api.exa.ai/search` | en-tête `x-api-key` | `{"query":…,"numResults":5}` | `results[].url` |
+| brave | `GET https://api.search.brave.com/res/v1/web/search?q=…&count=5` | en-tête `X-Subscription-Token` | — | `web.results[].url` |
+
+**Règle de bascule.** Un fournisseur est considéré en échec si : code HTTP 401, 402, 403, 429, ou 5xx ; ou délai dépassé ; ou aucun résultat exploitable. On passe alors au suivant dans `SEARCH_ORDER`, pour cette entreprise **et pour le reste de l'exécution** (inutile de réessayer un quota épuisé 200 fois). Si tous échouent, l'entreprise ressort avec `E-mail` vide et `Prochaine action` renseignée — jamais d'invention.
+
+**Plafond budgétaire.** `SEARCH_MAX_PER_RUN=120`. Au-delà, le workflow s'arrête, écrit ce qu'il a, et prévient sur Telegram. Le budget Brave disponible est de **5 dollars** : un workflow qui boucle le consommerait en une exécution.
 
 ## Global Constraints
 
@@ -80,91 +135,105 @@ Cinq situations que la spec implique et qu'aucune étape n'exerce spontanément.
 
 ---
 
-### Task 1: Base Notion « Entreprises cibles » et credentials
+### Task 1: Vérifier l'accès et versionner les gabarits
+
+L'essentiel de l'ancienne tâche 1 a été fait le 30/09/2026 : la base cible est « Candidatures IT », sa propriété `SIRET` est en place, et les cinq clés de recherche sont installées et testées. Il reste à **vérifier** et à **versionner les fichiers qui accompagnent le déploiement**.
 
 **Files:**
 - Create: `docker-stacks/automation/workflows/marche-cache/.env.example`
 - Create: `docker-stacks/automation/workflows/marche-cache/credentials.tpl.json`
 
 **Interfaces:**
-- Produces: une base Notion dédiée, son identifiant, et deux credentials utilisables dans n8n.
+- Produces: les credentials n8n utilisables par le workflow, et un `.env.example` versionné qui documente les variables attendues.
 
-- [ ] **Step 1: Créer la base Notion, séparée de « Candidatures IT »**
+- [ ] **Step 1: Vérifier l'accès Notion et l'intégrité des données existantes**
 
-Dans Notion, créer une base de données nommée **« Entreprises cibles — TSSR »**, avec exactement ces propriétés :
+```bash
+sudo pct exec 102 -- sh -c 'set -a; . /opt/automation/workflows/marche-cache/.env; set +a
+curl -s -m 20 -X POST "https://api.notion.com/v1/databases/$NOTION_DATABASE_ID/query" \
+  -H "Authorization: Bearer $NOTION_TOKEN" -H "Notion-Version: 2022-06-28" \
+  -H "Content-Type: application/json" -d "{\"page_size\":5}"' 2>&1 | cat
+```
 
-| Propriété | Type | Rôle |
-|---|---|---|
-| `Entreprise` | Titre | Raison sociale |
-| `SIRET` | Texte | **La clé anti-doublon.** Identifiant unique de l'établissement |
-| `Ville` | Texte | Commune |
-| `Distance` | Nombre | Kilomètres depuis Toulouse |
-| `Effectif` | Texte | Tranche de salariés |
-| `Secteur` | Texte | Libellé NAF |
-| `Potentiel` | Nombre | Score d'embauche de La Bonne Boîte |
-| `Dirigeants` | Texte | Noms et fonctions issus du registre |
-| `Décideurs` | Texte | Personnes et rôles trouvés sur le site |
-| `Contact` | Email | L'adresse publiée, **jamais devinée** |
-| `Confiance` | Sélection | `Vérifié` · `Probable` · `Introuvable` |
-| `Site` | URL | Domaine trouvé |
-| `Statut` | Sélection | `À contacter` · `Candidature envoyée` · `Relance à faire` · `Entretien` · `En attente` · `Accepté` · `Refusé` |
-| `Ajouté le` | Date | Date de création par le workflow |
-
-> Les valeurs de `Statut` reprennent exactement celles que l'utilisateur a définies dans son document d'objectif. Ne pas les inventer.
-
-Récupérer l'identifiant de la base : ouvrir la base en pleine page, l'URL contient `notion.so/<espace>/<DATABASE_ID>?v=…`. Le `DATABASE_ID` fait 32 caractères hexadécimaux.
-
-Partager la base avec l'intégration `n8n homelab` (menu `…` → `Connexions`).
+Attendu : HTTP 200, et **exactement 2 lignes** — `IWIT Systems` et `We Admin IT`. Si le nombre a changé, s'arrêter : quelque chose écrit déjà dans cette base.
 
 - [ ] **Step 2: Écrire `.env.example`**
 
-`docker-stacks/automation/workflows/marche-cache/.env.example` :
+`docker-stacks/automation/workflows/marche-cache/.env.example` — les noms seuls, jamais les valeurs :
 
 ```sh
 # Notion — jeton d'intégration interne (https://www.notion.so/my-integrations)
 NOTION_TOKEN=
-# Identifiant de la base « Entreprises cibles — TSSR » (32 caractères hex)
+# Base « Candidatures IT »
 NOTION_DATABASE_ID=
-# Recherche web, pour trouver le domaine d'une entreprise (https://brave.com/search/api/)
+# Recherche web : ordre d'essai, bascule automatique sur erreur ou quota épuisé.
+# Retirer un nom de la liste le désactive sans toucher au workflow.
+SEARCH_ORDER=serper,tavily,firecrawl,exa,brave
+SERPER_API_KEY=
+TAVILY_API_KEY=
+FIRECRAWL_API_KEY=
+EXA_API_KEY=
 BRAVE_API_KEY=
-# Telegram — mêmes valeurs que le workflow mail-triage
+# Plafond dur de requêtes de recherche par exécution (protège le budget)
+SEARCH_MAX_PER_RUN=120
+# Telegram — même valeur que le workflow mail-triage
 TELEGRAM_CHAT_ID=
 ```
 
 - [ ] **Step 3: Écrire `credentials.tpl.json`**
 
-Deux credentials de type `httpHeaderAuth`, cohérents avec le style du dépôt (le workflow `jobbot-alert` utilise déjà ce type pour Groq et Notion) :
+Un credential par fournisseur, tous en `httpHeaderAuth` sauf Tavily et Firecrawl qui utilisent `Authorization: Bearer`. Le type `httpHeaderAuth` convient aux deux : seul le nom de l'en-tête change.
 
 ```json
 [
   {
-    "id": "notion-marche-cache",
-    "name": "Notion — Entreprises cibles",
+    "id": "notion-alternance",
+    "name": "Notion — Candidatures IT",
     "type": "httpHeaderAuth",
     "data": { "name": "Authorization", "value": "Bearer ${NOTION_TOKEN}" }
   },
   {
-    "id": "brave-search",
-    "name": "Brave Search API",
+    "id": "search-serper",
+    "name": "Serper",
+    "type": "httpHeaderAuth",
+    "data": { "name": "X-API-KEY", "value": "${SERPER_API_KEY}" }
+  },
+  {
+    "id": "search-tavily",
+    "name": "Tavily",
+    "type": "httpHeaderAuth",
+    "data": { "name": "Authorization", "value": "Bearer ${TAVILY_API_KEY}" }
+  },
+  {
+    "id": "search-firecrawl",
+    "name": "Firecrawl",
+    "type": "httpHeaderAuth",
+    "data": { "name": "Authorization", "value": "Bearer ${FIRECRAWL_API_KEY}" }
+  },
+  {
+    "id": "search-exa",
+    "name": "Exa",
+    "type": "httpHeaderAuth",
+    "data": { "name": "x-api-key", "value": "${EXA_API_KEY}" }
+  },
+  {
+    "id": "search-brave",
+    "name": "Brave Search",
     "type": "httpHeaderAuth",
     "data": { "name": "X-Subscription-Token", "value": "${BRAVE_API_KEY}" }
   }
 ]
 ```
 
-- [ ] **Step 4: Vérifier l'accès Notion avant d'aller plus loin**
+- [ ] **Step 4: Récupérer l'identifiant Telegram depuis le workflow existant**
 
-Remplir `.env` sur le serveur (`/opt/automation/workflows/marche-cache/.env`, `chmod 600`), puis :
+`TELEGRAM_CHAT_ID` est vide dans le `.env`. La valeur existe déjà pour `mail-triage` :
 
 ```bash
-sudo pct exec 102 -- sh -c 'set -a; . /opt/automation/workflows/marche-cache/.env; set +a;
-curl -s -o /dev/null -w "Notion HTTP %{http_code}\n" \
-  -X POST "https://api.notion.com/v1/databases/$NOTION_DATABASE_ID/query" \
-  -H "Authorization: Bearer $NOTION_TOKEN" -H "Notion-Version: 2022-06-28" \
-  -H "Content-Type: application/json" -d "{\"page_size\":1}"' 2>&1 | cat
+sudo pct exec 102 -- sh -c 'grep "^TELEGRAM_CHAT_ID=" /opt/automation/workflows/mail-triage/.env' 2>&1 | cat
 ```
 
-Attendu : `Notion HTTP 200`. Un `404` signifie que la base n'a pas été partagée avec l'intégration — c'est l'erreur la plus fréquente.
+La recopier dans `/opt/automation/workflows/marche-cache/.env`.
 
 - [ ] **Step 5: Commit**
 
@@ -172,12 +241,11 @@ Attendu : `Notion HTTP 200`. Un `404` signifie que la base n'a pas été partag�
 cd /home/devkram/homelab-infrastructure
 git add docker-stacks/automation/workflows/marche-cache/.env.example \
         docker-stacks/automation/workflows/marche-cache/credentials.tpl.json
-git commit -m "feat(automation): credentials et variables du workflow marché caché
+git commit -m "feat(automation): gabarits de credentials du workflow marche-cache
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
 
----
 
 ### Task 2: Collecte La Bonne Boîte, tolérante aux pannes
 
@@ -293,7 +361,7 @@ C'est la crainte explicite de l'utilisateur, et la cause du problème qu'on rép
 Nœud `HTTP Request`, branché **en parallèle** de la collecte (pas en série) :
 
 - `POST https://api.notion.com/v1/databases/{{ $env.NOTION_DATABASE_ID }}/query`
-- Credential `Notion — Entreprises cibles`
+- Credential `Notion — Candidatures IT`
 - En-têtes `Notion-Version: 2022-06-28`, `Content-Type: application/json`
 - Corps : `{ "page_size": 100 }`
 - `timeout` : 15000
@@ -565,9 +633,51 @@ Vérifier aussi les trois cas dégradés :
 
 - [ ] **Step 7: Écrire dans Notion et récapituler**
 
-Nœud `HTTP Request` : `POST https://api.notion.com/v1/pages`, credential Notion, corps construit par un nœud `Code` qui reprend la structure de propriétés de la tâche 1 (`Entreprise` en `title`, `SIRET`/`Ville`/`Dirigeants`/`Décideurs` en `rich_text`, `Contact` en `email`, `Confiance`/`Statut` en `select`, `Potentiel`/`Distance` en `number`, `Site` en `url`, `Ajouté le` en `date`).
+Un nœud `Code` construit le corps, en respectant **exactement** le schéma réel de « Candidatures IT » (section « La base Notion cible » plus haut). Les noms de propriétés et les valeurs de `select` doivent correspondre au caractère près, sinon Notion renvoie 400.
 
-`Statut` est initialisé à `À contacter`.
+```javascript
+const j = $json;
+const txt = v => ({ rich_text: [{ text: { content: String(v ?? '').slice(0, 1900) } }] });
+
+// « Adéquation avec le TSSR » : on ne dispose à ce stade d'aucune annonce, seulement
+// du secteur et du potentiel d'embauche. On reste donc prudent — le plan 09 affinera
+// avec Groq quand il y aura une offre à lire.
+const adequation = j.potentiel >= 50 ? 'Forte' : (j.potentiel >= 20 ? 'Moyenne' : 'Faible');
+
+const notes = [
+  j.dirigeants ? `Dirigeants : ${j.dirigeants}` : '',
+  j.effectif_registre ? `Effectif : ${j.effectif_registre}` : '',
+  j.naf_label ? `Secteur : ${j.naf_label}` : '',
+  j.potentiel ? `Potentiel d'embauche : ${j.potentiel}` : '',
+  `Contact : ${j.confiance}`,
+  j.autres_contacts ? `Autres adresses : ${j.autres_contacts}` : '',
+  j.romes?.length ? `Codes ROME : ${j.romes.join(', ')}` : '',
+].filter(Boolean).join('\n');
+
+return [{ json: {
+  parent: { database_id: $env.NOTION_DATABASE_ID },
+  properties: {
+    'Entreprise': { title: [{ text: { content: (j.nom || 'Inconnu').slice(0, 200) } }] },
+    'SIRET': txt(j.siret),
+    'Statut': { select: { name: 'À analyser' } },
+    'Source': { select: { name: j.source === 'Digital113' ? 'Réseau' : 'Candidature spontanée' } },
+    'Localisation': txt(j.ville),
+    'Contact': txt(j.decideurs),
+    'E-mail': txt(j.contact),
+    'Adéquation avec le TSSR': { select: { name: adequation } },
+    'Lien de l\\'offre': { url: j.site ? `https://${j.site}` : null },
+    'Notes': txt(notes),
+    'Date de découverte': { date: { start: new Date().toISOString().slice(0, 10) } },
+    'Prochaine action': txt(j.contact ? 'Rédiger la candidature spontanée' : 'Chercher le contact à la main'),
+  },
+} }];
+```
+
+> `Statut` est initialisé à **`À analyser`**, la première étape de l'entonnoir défini par l'utilisateur. Pas `À candidater` : c'est lui qui décide de passer une entreprise à l'étape suivante.
+>
+> `Téléphone`, `Poste`, `Date de candidature`, `Date de relance` et `Créé le` ne sont **pas** écrits : ils appartiennent à l'utilisateur ou n'ont pas de sens à ce stade.
+
+Puis nœud `HTTP Request` : `POST https://api.notion.com/v1/pages`, credential `Notion — Candidatures IT`, en-têtes `Notion-Version: 2022-06-28` et `Content-Type: application/json`, corps `={{ JSON.stringify($json) }}`, `timeout` 15000, `onError: continueRegularOutput` (une ligne refusée ne doit pas perdre les 249 autres).
 
 Puis un nœud `Telegram` avec le récapitulatif :
 
@@ -609,7 +719,7 @@ Ajouter à `docker-stacks/automation/README.md` :
 ```markdown
 - `marche-cache` — entreprises toulousaines qui embauchent en informatique (La Bonne Boîte,
   5 codes ROME), enrichies par le registre des entreprises et par un contact vérifié sur
-  leur site. Écrit dans la base Notion « Entreprises cibles — TSSR », sans jamais créer de
+  leur site. Écrit dans la base Notion « Candidatures IT » au statut « À analyser », sans jamais créer de
   doublon (clé : le SIRET) ni deviner une adresse e-mail.
 ```
 
@@ -697,7 +807,7 @@ return [{ json: {
 
 Nœud `Merge` en mode `append`, **avant** le filtre anti-doublon de la tâche 3. Les entreprises présentes dans les deux sources sont éliminées par le SIRET, comme les autres.
 
-Ajouter `Source` (type Texte) à la base Notion pour distinguer l'origine.
+La propriété `Source` existe déjà : Digital113 est écrit en `Réseau`, La Bonne Boîte en `Candidature spontanée`.
 
 - [ ] **Step 5: Vérifier**
 
