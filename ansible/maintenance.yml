@@ -1,0 +1,27 @@
+---
+- name: Homelab Routine Maintenance
+  hosts: localhost
+  connection: local
+  become: yes
+
+  tasks:
+    - name: 1. Update Proxmox Host Packages (apt)
+      apt:
+        update_cache: yes
+        upgrade: dist
+        autoremove: yes
+
+    - name: 2. Run fstrim to free SSD space
+      command: fstrim -av
+      register: trim_result
+      changed_when: "\"0 B\" not in trim_result.stdout"
+
+    - name: 3. Ensure Media Stack (LXC 101) is running
+      command: pct status 101
+      register: lxc_status
+      changed_when: false
+
+    - name: 4. Ensure Docker is running in LXC 101 (via pct)
+      command: pct exec 101 -- systemctl is-active docker
+      register: docker_status
+      changed_when: false
