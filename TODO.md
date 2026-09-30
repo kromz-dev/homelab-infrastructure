@@ -6,7 +6,16 @@ Open work, roughly in priority order. Closed items move to `CHANGELOG.md`.
 
 - [ ] **No backup job covers LXC 101.** It is now the only guest on the node, and nothing schedules a vzdump. Any backup that does get taken also lands on the same SSD as the data it protects, so a disk failure loses both.
 
+## Automation (LXC 102)
+
+- [ ] **Back up `N8N_ENCRYPTION_KEY` off the host** (password manager). It lives only in `/opt/automation/.env`; losing it makes every stored credential unreadable.
+- [ ] Export the n8n workflows as JSON into this repo once the first ones exist, so they survive a disk failure without a vzdump.
+- [ ] Install Tailscale in LXC 102 and keep n8n private to the tailnet. Use Funnel on a single endpoint only if an external service must call a webhook.
+- [ ] n8n idles at ~570 MB against a 1 GB limit. Watch it once scraping workflows run; raise the limit before it gets OOM-killed.
+
 ## Host and storage
+
+- [ ] LXC 101 has a pending config change (`keyctl=1,fuse=1` under `[pve:pending]`) that the 2026-09-30 hardening entry reports as done. It only applies after a container restart.
 
 - [ ] Reduce the rclone mount's `--timeout` from 1h — a read of an uncached file currently hangs for up to an hour when the link drops, instead of failing fast for Jellyfin.
 - [ ] Remove the decommissioned scripts and stale compose files under `/opt/mediaserver` (LXC 101), and rotate the credentials they still reference.

@@ -1,0 +1,31 @@
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: '3'
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:${N8N_TAG}
+    container_name: n8n
+    environment:
+      TZ: ${TZ}
+      GENERIC_TIMEZONE: ${TZ}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      N8N_HOST: ${N8N_HOST}
+      N8N_SECURE_COOKIE: 'false'
+      N8N_RUNNERS_ENABLED: 'true'
+      N8N_DIAGNOSTICS_ENABLED: 'false'
+      EXECUTIONS_DATA_PRUNE: 'true'
+      EXECUTIONS_DATA_MAX_AGE: 168
+    volumes:
+    - n8n_data:/home/node/.n8n
+    ports:
+    - ${PORT_N8N}:5678
+    restart: unless-stopped
+    logging: *logging
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+volumes:
+  n8n_data:

@@ -37,6 +37,12 @@ flowchart LR
             Arrs[Sonarr/Radarr]
             Docker1 --- Jellyfin & Arrs
         end
+        subgraph LXC102 [LXC 102 - Automation]
+            direction LR
+            Docker2[Docker Engine]
+            n8n[n8n]
+            Docker2 --- n8n
+        end
     end
 
     subgraph Storage [Storage Backend]
@@ -51,10 +57,19 @@ flowchart LR
     Pool -->|Bind Mount| LXC101
 ```
 
+### Guests
+
+| ID | Hostname | IP | Resources | Role |
+|---|---|---|---|---|
+| 101 | `media-stack` | 192.168.1.150 | 3 cores, 6 GB RAM, 102 GB disk | Jellyfin, *arr suite, qBittorrent |
+| 102 | `automation` | 192.168.1.151 | 2 cores, 2 GB RAM, 10 GB disk, unprivileged | n8n workflow automation (notifications, scraping, AI, home automation) |
+
+LXC 102 is deliberately separate from the media stack: a runaway workflow cannot starve Jellyfin, and it runs unprivileged since it needs no device passthrough.
+
 ## Directory Structure
 
 - `ai-skills/` - Custom behavioral instructions for AI agents operating in this workspace.
-- `docker-stacks/` - Compose definitions for containerized services.
+- `docker-stacks/` - Compose definitions for containerized services (`media-stack/` in LXC 101, `automation/` in LXC 102).
 - `scripts/` - Host-level maintenance scripts (SSD trim, encrypted cloud offload).
 
 ## Core Design Principles
