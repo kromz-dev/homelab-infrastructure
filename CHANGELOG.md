@@ -1,0 +1,1 @@
+- 2026-09-30: Performed DevOps hardening (Added 2GB Swap, keyctl=1, fuse=1, qBittorrent RAM Cache, Docker PUID/PGID fixes, Memory limits on Flaresolverr).
