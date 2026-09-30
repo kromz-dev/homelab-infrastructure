@@ -10,6 +10,7 @@ Open work, roughly in priority order. Closed items move to `CHANGELOG.md`.
 
 - [ ] Reduce the rclone mount's `--timeout` from 1h — a read of an uncached file currently hangs for up to an hour when the link drops, instead of failing fast for Jellyfin.
 - [ ] Remove the decommissioned scripts and stale compose files under `/opt/mediaserver` (LXC 101), and rotate the credentials they still reference.
+- [ ] The rclone RC credential is duplicated between a service unit and the config file the upload script already reads. Keep the config file as the single source, so a rotation only has to touch one place.
 - [ ] Add log rotation for `/var/log/rclone-gmedia.log` (56 MB, unrotated).
 - [ ] Decide what to do with ~16 GB of torrents sitting on the cloud remote, left there before the pool was set to no-create.
 - [ ] Investigate one stuck import (Criminal Minds S13E06) that never reached the library.
