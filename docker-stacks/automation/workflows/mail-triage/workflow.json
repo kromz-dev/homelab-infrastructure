@@ -18,7 +18,9 @@
       "parameters": {
         "mailbox": "INBOX",
         "postProcessAction": "nothing",
-        "options": {}
+        "options": {
+          "customEmailConfig": "[\"UNSEEN\",[\"UID\",\"${IMAP_FROM_UID}:*\"]]"
+        }
       },
       "credentials": {
         "imap": {
