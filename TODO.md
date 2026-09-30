@@ -13,6 +13,8 @@ Open work, roughly in priority order. Closed items move to `CHANGELOG.md`.
 - [ ] `mail-triage` is active (2026-09-30). Run it for a week while still reading every mail while still reading every mail. Tighten the prompt from the misses.
 - [ ] `mail-triage` costs ~690 Groq tokens per mail against the free plan's 200K tokens/day and 8K/min (~290 mails/day, ~11/min). Past that Groq answers 429 and the workflow fails open, notifying every mail. Check the daily volume after a week; if it is close, add a local pre-filter (e.g. `List-Unsubscribe` header) before the API call.
 - [ ] Delete the leftover inactive `TEST erreur` workflow in the n8n UI (the CLI cannot delete).
+- [ ] Redeploying `mail-triage` wipes the workflow's static data, so the day's pending digest entries and counters are lost. Deploy early in the day, or persist the digest outside n8n if that becomes a habit.
+- [ ] The bulk heuristic (`List-Unsubscribe`) also catches legitimate automated mail (Pronote, other schools or platforms). Add each such sender's domain to `VIP_SENDERS` as it shows up in the digest.
 - [ ] `mail-triage` sends sender, subject and the first 1500 characters of every mail to Groq, including bank/tax mail. Add a local rule to keep those senders off the API if that matters.
 - [ ] Install Tailscale in LXC 102 and keep n8n private to the tailnet. Use Funnel on a single endpoint only if an external service must call a webhook.
 - [ ] n8n idles at ~570 MB against a 2 GB limit (LXC has 3 GB). Watch it once scraping workflows run.
