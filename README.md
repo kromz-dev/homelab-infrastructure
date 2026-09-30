@@ -1,8 +1,7 @@
 <div align="center">
   <img src="https://img.shields.io/badge/Proxmox%20VE-E57000?style=flat-square&logo=proxmox&logoColor=white" />
   <img src="https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white" />
-  <img src="https://img.shields.io/badge/Ansible-EE0000?style=flat-square&logo=ansible&logoColor=white" />
-  <img src="https://img.shields.io/badge/Ubuntu-E95420?style=flat-square&logo=ubuntu&logoColor=white" />
+  <img src="https://img.shields.io/badge/Debian-A81D33?style=flat-square&logo=debian&logoColor=white" />
 
   <h1>Homelab Infrastructure</h1>
   <p>Infrastructure as Code (IaC) repository for a hyperconverged homelab environment.</p>
@@ -18,9 +17,9 @@ This repository manages the configuration, deployment, and automation of a singl
 
 | Component | Specification | Description |
 |---|---|---|
-| **Hypervisor** | Proxmox VE 8.x | Bare-metal virtualization |
+| **Hypervisor** | Proxmox VE 9.x | Bare-metal virtualization on Debian 13 |
 | **Compute** | Intel Core i3-8100 | 4 Cores @ 3.60GHz, QSV Passthrough enabled |
-| **Memory** | 16 GB DDR4 | ECC unbuffered |
+| **Memory** | 16 GB DDR4 | 2 x 8 GB @ 2400 MT/s |
 | **Storage** | 250 GB SATA SSD | LVM-Thin provisioned |
 | **Network** | 1 Gbps Ethernet | Tailscale overlay network |
 
@@ -55,9 +54,8 @@ flowchart LR
 ## Directory Structure
 
 - `ai-skills/` - Custom behavioral instructions for AI agents operating in this workspace.
-- `ansible/` - Playbooks for host maintenance and service deployment.
 - `docker-stacks/` - Compose definitions for containerized services.
-- `docs/` - System architecture and incident response documentation.
+- `scripts/` - Host-level maintenance scripts (SSD trim, encrypted cloud offload).
 
 ## Core Design Principles
 
