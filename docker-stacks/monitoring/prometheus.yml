@@ -10,6 +10,6 @@ scrape_configs:
     static_configs:
       - targets: ['cadvisor:8080']
 
-  - job_name: 'proxmox-host'
+  - job_name: 'node'
     static_configs:
       - targets: ['192.168.1.250:9100']

@@ -29,7 +29,7 @@ Open work, roughly in priority order. Closed items move to `CHANGELOG.md`.
 - [ ] Create the francetravail.io account (open since 2026-09-17). Its "Offres d'emploi v2" API exposes a recruiter contact field that scraped job-board pages strip, and returns 150 offers per request instead of 60.
 - [ ] Going from a company name to its domain is the one step no French public API covers, and the weakest link in the pipeline. Watch how often the search providers return a directory instead of the company site, and tighten the exclusion list from real misses.
 - [ ] `jobbot-alert` (`docker-stacks/automation/workflows/`) is the earlier Python-pushes-to-webhook design, never configured and superseded by the n8n-owned pipeline. Delete it once the new workflow runs, together with the stale `workflow-jobbot-alert` entry in n8n.
-- [ ] Remove `scripts/run-jobbot.sh` and its host cron entry once n8n drives JobBot over HTTP. Nothing should trigger itself outside n8n.
+- [x] Removed `scripts/run-jobbot.sh` and its root cron entry (2026-09-30). It ran four times a day as root — which is how the repository ended up root-owned — and had been failing since JobBot moved into the container. n8n now owns every trigger; verified no crontab, `cron.d` or systemd timer references JobBot.
 - [ ] `stash@{0}` in the JobBot repository holds the abandoned TSSR work in progress, kept as reference. Drop it once the profile work has settled.
 
 ## Monitoring (LXC 103)

@@ -6,7 +6,6 @@ Host-level and container-level maintenance automation. This repository is the so
 |---|---|---|---|
 | `proxmox-fstrim.sh` | Proxmox host | `/etc/cron.weekly/fstrim-lxc` | Weekly |
 | `rclone-upload.sh` | LXC 101 (media-stack) | `/opt/mediaserver/upload_after_import.sh` | Every 15 minutes |
-| `run-jobbot.sh` | Proxmox host | `crontab` (devkram user or root) | 4× daily (business hours) |
 
 ## proxmox-fstrim.sh
 
@@ -25,14 +24,3 @@ Operational safeguards built into the script:
 - Log rotation at 10 MB, keeping three archives
 
 Credentials are read from `/root/.rclone-rc.conf` on the target host and are never stored in this repository. Set `DRY_RUN=1` to simulate a run without moving data.
-
-## run-jobbot.sh
-
-Runs the JobBot TSSR scraper.
-Target: Proxmox Host.
-Deployment: Add to user crontab (e.g. `crontab -e`) to run 4 times a day during business hours:
-`0 8,12,16,20 * * 1-5 /home/devkram/homelab-infrastructure/scripts/run-jobbot.sh`
-
-Operational safeguards built into the script:
-- `flock` guard, so overlapping cron invocations cannot run concurrently
-- Log rotation at 1 MB, keeping one archive
