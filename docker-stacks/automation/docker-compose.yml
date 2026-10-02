@@ -55,6 +55,21 @@ services:
     restart: unless-stopped
     logging: *logging
 
+  # Reconstructed on 2026-10-02 from `docker inspect` of the running container.
+  # The container's labels point at this file, but the copy on the server no longer contains it.
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    ports:
+    - 9080:8080
+    volumes:
+    - /:/rootfs:ro
+    - /var/run:/var/run:ro
+    - /sys:/sys:ro
+    - /var/lib/docker/:/var/lib/docker:ro
+    - /dev/disk/:/dev/disk:ro
+    restart: unless-stopped
+
 volumes:
   n8n_data:
   jobbot_tssr_data:

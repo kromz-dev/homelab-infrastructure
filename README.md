@@ -64,7 +64,8 @@ flowchart LR
             Prom[Prometheus]
             Graf[Grafana]
             Kuma[Uptime Kuma]
-            Docker3 --- Prom & Graf & Kuma
+            Dozzle[Dozzle]
+            Docker3 --- Prom & Graf & Kuma & Dozzle
         end
     end
 
@@ -84,11 +85,13 @@ flowchart LR
 
 | ID | Hostname | IP | Resources | Role |
 |---|---|---|---|---|
-| 101 | `media-stack` | 192.168.1.150 | 3 cores, 6 GB RAM, 102 GB disk | Jellyfin, *arr suite, qBittorrent |
+| 101 | `media-stack` | 192.168.1.150 | 3 cores, 6 GB RAM, 102 GB disk, **privileged** | Jellyfin, *arr suite, qBittorrent |
 | 102 | `automation` | 192.168.1.151 | 2 cores, 3 GB RAM, 10 GB disk, unprivileged | n8n workflow automation, JobBot job-search engine |
 | 103 | `monitoring` | 192.168.1.39 | 2 cores, 2 GB RAM, 8 GB disk, unprivileged | Prometheus, Grafana, Uptime Kuma, cAdvisor, Homepage |
 
 LXC 102 is deliberately separate from the media stack: a runaway workflow cannot starve Jellyfin, and it runs unprivileged since it needs no device passthrough.
+
+LXC 101 is the exception: it is a **privileged** container (no `unprivileged` flag in its config; 102 and 103 have it). That departs from the least-privilege principle below. It is a known gap, tracked in [`TODO.md`](TODO.md): converting it means remapping the ownership of its volumes and keeping the GPU passthrough Jellyfin needs, so it is planned work rather than a setting to flip.
 
 ## Monitoring
 
@@ -97,10 +100,13 @@ LXC 103 runs the observability stack, kept in [`docker-stacks/monitoring/`](dock
 | Service | Port | Role |
 |---|---|---|
 | Homepage | 3002 | Landing dashboard for every service on the node |
-| Grafana | 3000 | Dashboards over the Prometheus data |
-| Prometheus | 9090 | Metrics storage |
-| Uptime Kuma | 3001 | Availability checks (ping / HTTP) |
-| cAdvisor | 8080 | Per-container resource metrics |
+| Grafana | 3000 | Connected to Prometheus; **no dashboard is provisioned yet** |
+| Prometheus | 9090 | Metrics storage; scrapes cAdvisor on the three LXCs and the host's node exporter |
+| Uptime Kuma | 3001 | Availability checks (12 probes, ping / HTTP) |
+| cAdvisor | 8080 | Per-container resource metrics (also runs in LXC 101 and 102, on 9080) |
+| Dozzle | 8888 | Log viewer across the three LXCs; agents in 101 and 102 require a client certificate (mTLS) |
+
+Six containers run in LXC 103. **Nothing alerts yet**: Uptime Kuma has no notification channel and Prometheus has no alert rule, so the stack observes but does not notify. See [Known gaps](#known-gaps) and [`docker-stacks/monitoring/README.md`](docker-stacks/monitoring/README.md).
 
 This stack was decommissioned once as unused, then reinstated: the node now runs three
 containers and two long-lived automations, and a silent failure in one of them is no longer
@@ -194,6 +200,18 @@ and risks the accounts the search itself depends on.
 
 Plans live in [`docs/plans/`](docs/plans/).
 
+## Known gaps
+
+What does not meet the standard this README sets, as of 2026-10-02. Each item is tracked in [`TODO.md`](TODO.md).
+
+- **Authentication on some media-stack services needs strengthening.** Not every service there enforces login the way it should.
+- **No alerting.** Uptime Kuma, Prometheus and Grafana collect and display, but nothing sends a notification when something fails.
+- **One privileged container.** LXC 101 is privileged; the other two are not.
+- **Host access is not hardened yet** (SSH settings, firewall, package repositories).
+- **No backups.** No job backs up any guest, and nothing is copied off the single SSD. Deferred deliberately on 2026-09-30.
+- **Images follow `latest`.** Almost every service (all but Uptime Kuma, n8n and the locally built JobBot) tracks a floating tag, so a pull can change versions without notice.
+- **Some running containers are not described in this repository's files**, or differ from them (see `TODO.md`).
+
 ## Directory Structure
 
 - `ai-skills/` - Custom behavioral instructions for AI agents operating in this workspace.
@@ -205,5 +223,5 @@ Plans live in [`docs/plans/`](docs/plans/).
 ## Core Design Principles
 
 1. **The repository is the record:** every change to the server is written down here, including known gaps, so the documentation never claims more than what runs.
-2. **Least Privilege:** Containers utilize read-only mounts where possible, the automation container runs unprivileged, and secrets never enter the repository (`.env` files are git-ignored). The `root` account is disabled for remote access, relying exclusively on an unprivileged `sudoer` account with SSH keys.
+2. **Least Privilege (partly met):** Containers utilize read-only mounts where possible, the automation and monitoring containers run unprivileged, and secrets never enter the repository (`.env` files are git-ignored). Two things fall short of the principle today: LXC 101 is privileged, and the host's SSH access has not been hardened yet. Both are listed under [Known gaps](#known-gaps).
 3. **Storage Efficiency:** Media management utilizes a hybrid local/cloud approach via MergerFS and Rclone. Local storage handles write-intensive operations, while cold data is asynchronously offloaded to cloud storage.

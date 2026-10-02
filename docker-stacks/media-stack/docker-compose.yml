@@ -178,3 +178,18 @@ services:
     - media_network
     restart: unless-stopped
     logging: *id001
+
+  # Reconstructed on 2026-10-02 from `docker inspect` of the running container.
+  # It was started from /root/mediastack/docker-compose.yml, on the default compose network, with Docker's default log settings.
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    ports:
+    - 9080:8080
+    volumes:
+    - /:/rootfs:ro
+    - /var/run:/var/run:ro
+    - /sys:/sys:ro
+    - /var/lib/docker/:/var/lib/docker:ro
+    - /dev/disk/:/dev/disk:ro
+    restart: unless-stopped
