@@ -17,7 +17,7 @@ This repository documents and version-controls a personal Proxmox VE homelab: th
 
 | Component | Specification | Description |
 |---|---|---|
-| **Hypervisor** | Proxmox VE 9.x on a Dell OptiPlex 3060 | Bare-metal virtualization on Debian 13 |
+| **Hypervisor** | Proxmox VE 9.2 on a Dell OptiPlex 3060 | Bare-metal virtualization on Debian 13, kernel 7.0 |
 | **Compute** | Intel Core i3-8100 (UHD Graphics 630) | 4 Cores @ 3.60GHz, QSV Passthrough enabled |
 | **Memory** | 16 GB DDR4 | 2 x 8 GB @ 2400 MT/s |
 | **Storage** | 250 GB SATA SSD (WD Blue) | LVM-Thin provisioned |
@@ -219,6 +219,12 @@ What does not meet the standard this README sets, as of 2026-10-02. Each item is
 - `docs/plans/` - Implementation plans for the automations, written before the code.
 - `scripts/` - Host-level maintenance scripts (SSD trim, encrypted cloud offload).
 - `CHANGELOG.md` / `TODO.md` - What changed, and what is still open.
+
+## Open work
+
+[`TODO.md`](TODO.md) lists the known gaps; [`docs/REPARATIONS.md`](docs/REPARATIONS.md) is the
+prioritised worklist derived from the 2026-10-02 audit, including the ordering traps — SSH
+hardening and the host firewall both lock you out of your own machine if done in the wrong order.
 
 ## Core Design Principles
 
