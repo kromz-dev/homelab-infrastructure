@@ -56,7 +56,7 @@ Six containers in LXC 103 (checked 2026-10-02):
 - **Prometheus**: stores metrics, 15 days of retention. Scrapes cAdvisor in the three LXCs and the Proxmox host's node exporter. All five targets are up.
 - **Grafana**: connected to Prometheus, but **no dashboard is provisioned**. The admin password has been changed from the default.
 - **Uptime Kuma**: 12 ping/HTTP probes.
-- **Dozzle** (master): one log viewer for all three LXCs, through agents in LXC 101 and 102. The agents refuse connections that present no client certificate (mTLS), which was verified from outside the container: the TLS handshake ends with `certificate required`.
+- **Dozzle** (master): intended as one log viewer for all three LXCs, through agents in LXC 101 and 102. **The remote hosts are not reachable** — see Current state. It does show the local containers of LXC 103.
 - **Homepage**: landing page linking every service (the config with API keys is git-ignored).
 - **cAdvisor**: per-container metrics for LXC 103 itself. LXC 101 and 102 run their own, on port 9080.
 
@@ -67,6 +67,7 @@ What this stack does **not** do, despite what earlier versions of this file clai
 - **No alerting.** Uptime Kuma has 0 notification channels, Prometheus has 0 alert rules and no Alertmanager, Grafana has 0 alert rules. A probe can go red and nobody is told.
 - **No Grafana dashboards.** The community dashboards 1860 (node metrics) and 14282 (cAdvisor) were listed here but never imported; Grafana holds none.
 - **No auto-update.** `docker-compose.yml` declares a Watchtower service (daily at 04:00), but that container is not running and its image has never been pulled on this machine. It is declared, not deployed. Every image here tracks `latest` except Uptime Kuma (`:2`), so updates happen only when someone pulls by hand.
+- **Dozzle's multi-node log viewing does not work.** `DOZZLE_REMOTE_AGENT` points at both agents, and the agents do enforce mTLS — a connection without a client certificate is refused with `certificate required`. But the master is refused too: `agent certificate is not trusted by this dozzle: x509: certificate signed by unknown authority`. Master and agents use independently self-signed certificates with no shared trust anchor. The master last logged anything on 2026-10-01 05:03. The `.dozzle_secrets` files exist to provision a matching pair, but no compose file in this repository references them. So the mTLS is enforced and the feature is non-functional at the same time — it has never worked, and nothing reported it, which is the cost of having no alerting.
 - **Disk space is tight.** The container has an 8 GB disk, and Prometheus has already hit `no space left on device` once (2026-09-30 to 2026-10-01), leaving a gap in the metrics.
 
 Open work is in the root [`TODO.md`](../../TODO.md).

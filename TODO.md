@@ -39,6 +39,8 @@ Open work, roughly in priority order. Closed items move to `CHANGELOG.md`.
 
 ## Monitoring (LXC 103)
 
+- [ ] **Dozzle's remote log viewing is broken and always has been.** Master and agents each use their own self-signed certificate, so the master's mTLS handshake is rejected (`certificate signed by unknown authority`). Provision one trust anchor shared by master and agents — the `.dozzle_secrets` files were created for this but no compose file uses them — or drop the remote agents and keep Dozzle local to LXC 103. Nothing reported this failure for two days.
+
 - [ ] Prometheus retention is set to 15 days on the same single SSD as the media library. Measure what that actually costs in gigabytes once the stack has run a full cycle, and shorten it if it competes with Jellyfin for space.
 - [ ] **Nothing alerts.** Checked 2026-10-02: Uptime Kuma has 12 probes and 0 notification channels, Prometheus has 0 alert rules and no Alertmanager, Grafana has 0 alert rules. A failing service goes unnoticed until someone looks. Point Uptime Kuma at the Telegram bot the mail triage already uses, then add Prometheus rules.
 - [ ] Pin the image tags: every service in this stack tracks `latest` except Uptime Kuma. (The Grafana admin password was confirmed changed on 2026-10-02.)
