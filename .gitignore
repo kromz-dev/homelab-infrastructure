@@ -31,3 +31,7 @@ credentials.json
 .dozzle_secrets
 *_secrets
 .dozzle_secrets
+
+# Exports de conversation : contiennent l'intégralité des échanges, donc des secrets
+coonv-agent-*.txt
+*-agent-automatisation.txt
