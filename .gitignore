@@ -20,3 +20,18 @@ service_account.json
 
 # Logs
 *.log
+
+# n8n credentials holding real values — only the *.tpl.json templates belong in git
+credentials.json
+
+# Python virtualenvs
+.venv/
+
+# Dozzle (et tout fichier de secrets hors .env)
+.dozzle_secrets
+*_secrets
+.dozzle_secrets
+
+# Exports de conversation : contiennent l'intégralité des échanges, donc des secrets
+coonv-agent-*.txt
+*-agent-automatisation.txt

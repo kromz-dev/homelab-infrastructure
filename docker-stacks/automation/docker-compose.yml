@@ -26,5 +26,50 @@ services:
       resources:
         limits:
           memory: 2G
+  jobbot-tssr:
+    build:
+      context: /opt/dev/jobbot
+    container_name: jobbot-tssr
+    environment:
+      TZ: ${TZ}
+      JOBBOT_PROFILE: tssr-alternance
+      JOBBOT_DATA: /data
+    volumes:
+    - jobbot_tssr_data:/data
+    ports:
+    - ${PORT_JOBBOT_TSSR:-8766}:8765
+    restart: unless-stopped
+    logging: *logging
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: dozzle-agent
+    command: agent
+    volumes:
+    - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+    - 7007:7007
+    restart: unless-stopped
+    logging: *logging
+
+  # Reconstructed on 2026-10-02 from `docker inspect` of the running container.
+  # The container's labels point at this file, but the copy on the server no longer contains it.
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    ports:
+    - 9080:8080
+    volumes:
+    - /:/rootfs:ro
+    - /var/run:/var/run:ro
+    - /sys:/sys:ro
+    - /var/lib/docker/:/var/lib/docker:ro
+    - /dev/disk/:/dev/disk:ro
+    restart: unless-stopped
+
 volumes:
   n8n_data:
+  jobbot_tssr_data:

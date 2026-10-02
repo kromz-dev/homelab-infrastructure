@@ -1,0 +1,82 @@
+- Serveur (Hôte & Infra):
+    - Proxmox:
+        icon: proxmox
+        href: https://192.168.1.250:8006
+        ping: http://192.168.1.250:8006
+        description: Hyperviseur
+        widget:
+            type: proxmox
+            url: https://192.168.1.250:8006
+            # Générez un token API dans l'UI Proxmox (Datacenter -> Permissions -> API Tokens)
+            # Décochez 'Privilege Separation' pour que le token hérite des droits de l'utilisateur
+            username: root@pam!TOKEN_ID # Remplacez par votre Token ID
+            password: REPLACE_ME_TOKEN # Remplacez par le secret de votre Token
+    - Grafana:
+        icon: grafana
+        href: http://192.168.1.39:3000
+        ping: http://192.168.1.39:3000
+    - Prometheus:
+        icon: prometheus
+        href: http://192.168.1.39:9090
+        ping: http://192.168.1.39:9090
+    - Uptime Kuma:
+        icon: uptime-kuma
+        href: http://192.168.1.39:3001
+        ping: http://192.168.1.39:3001
+        widget:
+            type: uptimekuma
+            url: http://192.168.1.39:3001
+
+- Média (LXC 101):
+    - Jellyfin:
+        icon: jellyfin
+        href: http://192.168.1.150:8096
+        ping: http://192.168.1.150:8096
+        widget:
+            type: jellyfin
+            url: http://192.168.1.150:8096
+            # Générez une clé API dans l'UI Jellyfin (Tableau de bord -> Avancé -> Clés d'API)
+            key: REPLACE_ME_TOKEN
+    - Sonarr:
+        icon: sonarr
+        href: http://192.168.1.150:8989
+        ping: http://192.168.1.150:8989
+        widget:
+            type: sonarr
+            url: http://192.168.1.150:8989
+            key: YOUR_API_KEY_HERE
+    - Radarr:
+        icon: radarr
+        href: http://192.168.1.150:7878
+        ping: http://192.168.1.150:7878
+        widget:
+            type: radarr
+            url: http://192.168.1.150:7878
+            key: YOUR_API_KEY_HERE
+    - Prowlarr:
+        icon: prowlarr
+        href: http://192.168.1.150:9696
+        ping: http://192.168.1.150:9696
+        widget:
+            type: prowlarr
+            url: http://192.168.1.150:9696
+            key: YOUR_API_KEY_HERE
+    - qBittorrent:
+        icon: qbittorrent
+        href: http://192.168.1.150:8080
+        ping: http://192.168.1.150:8080
+        widget:
+            type: qbittorrent
+            url: http://192.168.1.150:8080
+            username: admin
+            password: adminadmin
+    - Overseerr:
+        icon: overseerr
+        href: http://192.168.1.150:5055
+        ping: http://192.168.1.150:5055
+
+- Automatisation (LXC 102):
+    - n8n:
+        icon: n8n.png
+        href: http://192.168.1.151:5678
+        ping: http://192.168.1.151:5678

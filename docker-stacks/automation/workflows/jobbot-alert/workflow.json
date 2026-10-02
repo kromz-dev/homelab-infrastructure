@@ -1,0 +1,188 @@
+{
+  "id": "jobbot-alert",
+  "name": "JobBot — Alternance TSSR → Groq → Notion → Telegram",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "jobbot-alert",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "jb1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [200, 300],
+      "webhookId": "jobbot-alert"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const data = $input.item.json;\nif (data.score < 60) {\n  return [];\n}\n\nconst prompt = `Evalue la pertinence de cette offre pour une alternance de Technicien Supérieur Systèmes et Réseaux (TSSR) à Toulouse.\n\nEntreprise: ${data.entreprise}\nPoste: ${data.poste}\nContrat: ${data.contract}\nLocalisation: ${data.localisation}\nDescription: ${(data.description || '').slice(0, 2000)}\n\nCritères :\n- C'est une VRAIE entreprise (pas un organisme de formation) ?\n- Le poste correspond au TSSR (systèmes, réseaux, support, infrastructure, helpdesk) ?\n- C'est bien une alternance ou un contrat d'apprentissage ?\n- C'est accessible depuis Toulouse (< 60 km ou télétravail) ?\n\nRéponds uniquement en JSON valide : { \"rating\": 8, \"action\": \"apply\", \"reason\": \"raison courte en français\" }`;\n\nreturn [{ json: { ...data, groq_body: {\n  model: 'llama-3.3-70b-versatile',\n  temperature: 0,\n  response_format: { type: 'json_object' },\n  messages: [\n    { role: 'system', content: 'Tu es un assistant qui évalue des offres d\\'emploi pour une alternance TSSR. Réponds uniquement en JSON.' },\n    { role: 'user', content: prompt }\n  ]\n} } }];"
+      },
+      "id": "jb2",
+      "name": "Analyser",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.groq_body) }}",
+        "options": {
+          "timeout": 20000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 6000
+            }
+          }
+        }
+      },
+      "id": "jb3",
+      "name": "Groq",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [640, 300],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "cred-jobbot-groq",
+          "name": "cred-jobbot-groq"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst src = $('Analyser').all();\nconst idx = $itemIndex;\nconst orig = src[idx] ? src[idx].json : {};\nconst data = $input.item.json;\n\nlet groq = { rating: 0, action: 'skip', reason: 'IA indisponible' };\ntry {\n  const content = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;\n  if (content) groq = JSON.parse(content);\n} catch (e) {}\n\nif (groq.rating < 5) return [];\n\nconst adequation = groq.rating >= 7 ? 'Forte' : 'Moyenne';\n\nconst notionBody = {\n  parent: { database_id: '${NOTION_DATABASE_ID}' },\n  properties: {\n    'Entreprise': { title: [{ text: { content: orig.entreprise || 'Inconnu' } }] },\n    'Poste': { rich_text: [{ text: { content: (orig.poste || '').slice(0, 200) } }] },\n    'Statut': { select: { name: 'À contacter' } },\n    'Source': { select: { name: orig.source || 'JobBot' } },\n    'Localisation': { rich_text: [{ text: { content: orig.localisation || '' } }] },\n    'Lien offre': { url: orig.url || null },\n    'Adéquation TSSR': { select: { name: adequation } },\n    'Notes': { rich_text: [{ text: { content: `${groq.reason} — Action: ${groq.action} (${groq.rating}/10)` } }] }\n  }\n};\n\nconst msg = `🎯 <b>${esc(orig.poste)}</b>\\n🏢 ${esc(orig.entreprise)} — ${esc(orig.localisation)}\\n⭐ ${groq.rating}/10 — ${esc(groq.reason)}\\n💡 ${esc(groq.action)}` + (orig.url ? `\\n🔗 <a href=\"${orig.url}\">Voir l'offre</a>` : '');\n\nreturn [{ json: { ...orig, groq, notionBody, msg } }];"
+      },
+      "id": "jb4",
+      "name": "Décider",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [860, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/pages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Notion-Version", "value": "2022-06-28" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.notionBody) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "jb5",
+      "name": "Notion",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1080, 300],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "cred-jobbot-notion",
+          "name": "cred-jobbot-notion"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "${TELEGRAM_CHAT_ID}",
+        "text": "={{ $json.msg }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "jb6",
+      "name": "Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1300, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "cred-jobbot-telegram",
+          "name": "cred-jobbot-telegram"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "jb7",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [200, 500]
+    },
+    {
+      "parameters": {
+        "chatId": "${TELEGRAM_CHAT_ID}",
+        "text": "=⚠️ JobBot workflow : échec\nNœud : {{ $json.execution.lastNodeExecuted }}\nErreur : {{ $json.execution.error.message }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "jb8",
+      "name": "Telegram Error",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [420, 500],
+      "credentials": {
+        "telegramApi": {
+          "id": "cred-jobbot-telegram",
+          "name": "cred-jobbot-telegram"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{ "node": "Analyser", "type": "main", "index": 0 }]]
+    },
+    "Analyser": {
+      "main": [[{ "node": "Groq", "type": "main", "index": 0 }]]
+    },
+    "Groq": {
+      "main": [[{ "node": "Décider", "type": "main", "index": 0 }]]
+    },
+    "Décider": {
+      "main": [[{ "node": "Notion", "type": "main", "index": 0 }]]
+    },
+    "Notion": {
+      "main": [[{ "node": "Telegram", "type": "main", "index": 0 }]]
+    },
+    "Error Trigger": {
+      "main": [[{ "node": "Telegram Error", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Paris",
+    "errorWorkflow": "jobbot-alert"
+  }
+}

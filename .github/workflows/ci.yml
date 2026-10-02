@@ -1,0 +1,47 @@
+name: Infrastructure CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  lint-and-validate:
+    name: Lint & Validate Compose
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: YAML Lint
+        uses: ibiqlik/action-yamllint@v3
+        with:
+          file_or_dir: .
+          config_data: |
+            extends: default
+            rules:
+              line-length: disable
+              document-start: disable
+              truthy: disable
+
+      - name: Validate Docker Compose files
+        run: |
+          for compose_file in $(find docker-stacks -name "docker-compose.yml"); do
+            echo "Validating $compose_file..."
+            docker compose -f $compose_file config -q
+          done
+
+  security-scan:
+    name: Secret & Vulnerability Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Secret Scanning (Gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,967 @@
+# Marché caché TSSR — pipeline n8n
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+>
+> **REQUIRED SUB-SKILL n8n :** invoquer `n8n-mcp-skills:using-n8n-mcp-skills` avant toute action n8n, puis les skills spécialisées qu'elle indique (`n8n-workflow-patterns`, `n8n-node-configuration`, `n8n-expression-syntax`, `n8n-error-handling`, `n8n-code-javascript`). Valider chaque workflow avec `validate_workflow` **avant** de le déployer.
+
+**Goal:** Produire et tenir à jour, dans Notion, une liste d'entreprises toulousaines qui embauchent en informatique — avec leurs dirigeants, un contact vérifié et un niveau de confiance — pour alimenter les candidatures spontanées en alternance TSSR.
+
+**Architecture:** Un workflow n8n unique, déclenché par un cron hebdomadaire, qui enchaîne : La Bonne Boîte (5 codes ROME) → dédoublonnage sur le SIRET contre ce qui est déjà dans Notion → enrichissement par le registre officiel des entreprises → recherche et vérification du contact → écriture dans une base Notion dédiée → récapitulatif Telegram. **Tout vit dans n8n** ; aucun code Python, aucune tâche planifiée sur l'hôte.
+
+**Tech Stack:** n8n 2.41.4 (LXC 102), nœuds Schedule Trigger, HTTP Request, Code, Filter, Split In Batches, Notion, Telegram. APIs publiques françaises. Aucune dépendance nouvelle.
+
+**Spec:** Objectif utilisateur « alternance TSSR à Toulouse » (document du 30/09/2026) — étape bloquante déclarée : « Constituer une liste de 30 entreprises cibles (La Bonne Alternance, ESN toulousaines) ». Décision d'architecture du 30/09/2026 : le cœur de l'automatisation est dans n8n, JobBot n'est qu'une source.
+
+---
+
+## Constat d'état (vérifié le 30/09/2026)
+
+Tout ce qui suit a été testé en direct, pas supposé.
+
+| Fait | Vérification |
+|---|---|
+| La Bonne Boîte répond **sans aucune clé** | `GET /api/v2/search?rome=M1801&citycode=31555&distance=40` → HTTP 200, 70 établissements |
+| Volume total autour de Toulouse | M1801=74, M1805=78, M1802=66, M1810=15, I1401=15 à 60 km |
+| Le champ `email` est un **drapeau**, pas une adresse | Renvoie `"yes"` ; `phone` et `website` sont vides |
+| Le registre donne les **dirigeants nommés** | `recherche-entreprises.api.gouv.fr` → « GUILLAUME MARTIN — Président de SAS » |
+| Le registre ne donne **pas** le site web | Champ `siege.site_web` → `None` |
+| Le site d'une entreprise donne une **vraie adresse** | `pictarine.com` → `mailto:contact@pictarine.com` sur l'accueil et les mentions légales |
+| La page équipe donne les **décideurs** | `pictarine.com/team` → Elodie (Chief People Officer), Benjamin (Head of Engineering) |
+| La vérification DNS fonctionne | `dig MX pictarine.com` → Google Workspace ; `dig` présent dans le LXC 102 |
+| Les annonces **ne contiennent pas** d'adresses | 0 sur 31 annonces en base : les sites d'annonces les retirent |
+| n8n possède déjà Groq, Telegram et Gmail IMAP | `n8n export:credentials` |
+| n8n **n'a aucun accès Notion** | Aucun credential Notion ; `NOTION_DATABASE_ID` jamais renseigné |
+| OpenStreetMap n'est pas fiable pour le site web | Overpass → HTTP 504 sous charge |
+
+## Prérequis — faits le 30/09/2026
+
+Tout est en place et vérifié. Rien à faire avant de commencer.
+
+| Élément | État |
+|---|---|
+| Jeton Notion | ✅ intégration `n8n-alternance`, espace « KACED KAMAL's Space » — `GET /v1/users/me` → 200 |
+| Base cible | ✅ **« Candidatures IT »**, `d24e8ee1-80ce-4cb6-848c-45e44be4a096` — 2 lignes existantes, 17 propriétés |
+| Propriété `SIRET` | ✅ ajoutée le 30/09/2026 (type texte) : c'est **la clé anti-doublon** |
+| Serper | ✅ `POST https://google.serper.dev/search` → 200, 1 crédit par requête |
+| Tavily | ✅ `POST https://api.tavily.com/search` → 200 |
+| Firecrawl | ✅ `POST https://api.firecrawl.dev/v1/search` → 200 |
+| Exa | ✅ `POST https://api.exa.ai/search` → 200 |
+| Brave | ✅ 200, mais **payant** — dernier recours uniquement |
+| Secrets | ✅ `/opt/automation/workflows/marche-cache/.env`, `chmod 600`, jamais versionné |
+
+**Les clés de cette première installation doivent être révoquées et régénérées** une fois le pipeline validé : elles ont transité par une conversation. Prévoir la rotation dans le `.env`, le workflow lit les variables, il n'y a rien à modifier dans n8n.
+
+*(Optionnel, plan 08)* **Compte francetravail.io**, noté depuis le 17/09/2026 dans `jobbot/progress/A_FAIRE.md`. L'API « Offres d'emploi v2 » expose un champ de contact du recruteur que les pages web masquent.
+
+## La base Notion cible — schéma réel
+
+**On écrit dans « Candidatures IT », pas dans une base séparée.** Ses valeurs de `Statut` (`À analyser`, `À candidater`) et de `Source` (`Candidature spontanée`, `Réseau`) montrent qu'elle est conçue pour tenir tout l'entonnoir, du prospect brut à l'embauche.
+
+Propriétés utilisées par ce workflow :
+
+| Propriété | Type | Valeur écrite |
+|---|---|---|
+| `Entreprise` | Titre | Raison sociale |
+| `SIRET` | Texte | **Clé anti-doublon.** Jamais vide |
+| `Statut` | Select | `À analyser` pour tout nouveau prospect |
+| `Source` | Select | `Candidature spontanée` (La Bonne Boîte) · `Réseau` (Digital113) |
+| `Localisation` | Texte | Commune |
+| `Contact` | Texte | Décideurs trouvés : noms et rôles |
+| `E-mail` | Texte | Adresse **publiée**, ou vide. Jamais construite |
+| `Téléphone` | Texte | Si publié, sinon vide |
+| `Adéquation avec le TSSR` | Select | `Forte` · `Moyenne` · `Faible` |
+| `Lien de l'offre` | URL | Le site de l'entreprise (pas d'offre à ce stade) |
+| `Notes` | Texte | Dirigeants, effectif, secteur, potentiel, confiance du contact |
+| `Date de découverte` | Date | Date d'exécution |
+| `Prochaine action` | Texte | `Chercher le contact à la main` si `E-mail` est vide |
+
+> **Ne jamais écrire dans `Date de candidature`, `Date de relance` ni `Créé le`** : ce sont les champs que l'utilisateur remplit lui-même.
+>
+> **Ne jamais modifier ni archiver une ligne existante.** Le workflow ne fait que des créations. Les 2 lignes présentes au 30/09/2026 (`IWIT Systems`, `We Admin IT`) sont saisies à la main et intouchables.
+>
+> `Adéquation avec le TSSR` porte ce nom exact, avec « avec le TSSR ». Ne pas l'abréger.
+
+## Chaîne de recherche avec bascule automatique
+
+Le domaine d'une entreprise est le seul élément qu'aucune API publique française ne donne (vérifié : `siege.site_web` vaut `None`). Il faut donc un moteur de recherche, et **aucun fournisseur ne doit être un point de panne unique**.
+
+`SEARCH_ORDER` dans le `.env` pilote l'ordre : `serper,tavily,firecrawl,exa,brave`. Les quotas gratuits mensuels commandent cet ordre — Serper 2 500, Tavily 1 000, Firecrawl 1 000, Exa en crédits offerts, Brave payant en dernier.
+
+Formats vérifiés le 30/09/2026, tous en HTTP 200 sur la même requête. Les quatre ont renvoyé le bon domaine en **première position** ; Tavily et Exa sont les plus propres sur les suivantes, Serper et Firecrawl y mêlent annuaires et réseaux sociaux — sans conséquence puisqu'on ne retient que le premier résultat non-annuaire.
+
+| Fournisseur | Endpoint | Authentification | Corps | Chemin des résultats |
+|---|---|---|---|---|
+| serper | `POST https://google.serper.dev/search` | en-tête `X-API-KEY` | `{"q":…,"num":5,"gl":"fr","hl":"fr"}` | `organic[].link` |
+| tavily | `POST https://api.tavily.com/search` | en-tête `Authorization: Bearer` | `{"query":…,"max_results":5}` | `results[].url` |
+| firecrawl | `POST https://api.firecrawl.dev/v1/search` | en-tête `Authorization: Bearer` | `{"query":…,"limit":5}` | `data[].url` |
+| exa | `POST https://api.exa.ai/search` | en-tête `x-api-key` | `{"query":…,"numResults":5}` | `results[].url` |
+| brave | `GET https://api.search.brave.com/res/v1/web/search?q=…&count=5` | en-tête `X-Subscription-Token` | — | `web.results[].url` |
+
+**Règle de bascule.** Un fournisseur est considéré en échec si : code HTTP 401, 402, 403, 429, ou 5xx ; ou délai dépassé ; ou aucun résultat exploitable. On passe alors au suivant dans `SEARCH_ORDER`, pour cette entreprise **et pour le reste de l'exécution** (inutile de réessayer un quota épuisé 200 fois). Si tous échouent, l'entreprise ressort avec `E-mail` vide et `Prochaine action` renseignée — jamais d'invention.
+
+**Plafond budgétaire.** `SEARCH_MAX_PER_RUN=120`. Au-delà, le workflow s'arrête, écrit ce qu'il a, et prévient sur Telegram. Le budget Brave disponible est de **5 dollars** : un workflow qui boucle le consommerait en une exécution.
+
+## Pièges du déploiement n8n — constatés le 30/09/2026
+
+Quatre écueils rencontrés en faisant les tâches 1 et 2. Les lire **avant** les tâches 3 à 6.
+
+1. **Écrire `${NOM_DE_VARIABLE}`, pas `$env.NOM`.** `deploy-workflow.sh` passe `workflow.json`
+   dans `envsubst` avec les variables du `.env`. Un `$env.NOTION_DATABASE_ID` dans une expression
+   n8n resterait littéral, ou serait bloqué si l'accès à l'environnement est désactivé. La
+   substitution se fait au déploiement, pas à l'exécution.
+2. **Les noms de nœuds entre `$('…')` doivent correspondre aux noms réels.** Le code des tâches 4
+   et 5 de ce plan référence `$('Filtrer les nouvelles')` et `$('Écarter les entreprises fermées')`
+   — vérifier comment les nœuds s'appellent vraiment dans `workflow.json` avant de recopier.
+   C'est la première cause de panne silencieuse dans n8n.
+3. **`marche-cache` n'a pas encore d'`errorWorkflow`** dans ses `settings`, contrairement à
+   `mail-triage`. À câbler avec l'`Error Trigger` de la tâche 5, sinon une exécution ratée est
+   muette.
+4. **Un `Schedule Trigger` seul ne suffit pas pour exécuter en ligne de commande.** `n8n execute`
+   exige un déclencheur manuel, et réclame `N8N_RUNNERS_BROKER_PORT=5690` (le 5679 est pris par
+   l'instance en marche). Garder un déclencheur manuel dans le workflow pour les essais.
+
+Et un rappel : `/opt/automation/` est une **copie** du dépôt, pas le dépôt. Toute modification de
+`workflow.json` doit être recopiée côté serveur avant import. `deploy-workflow.sh` redémarre n8n,
+ce qui interrompt brièvement `mail-triage` : préférer `pct push` puis `n8n import:workflow` quand
+un redémarrage n'est pas nécessaire.
+
+## Global Constraints
+
+- **Tout dans n8n.** Aucun script Python, aucune entrée cron sur l'hôte Proxmox, aucun planificateur interne. Si une étape semble exiger du code, elle tient dans un nœud Code JavaScript.
+- Le workflow est versionné dans ce dépôt sous `docker-stacks/automation/workflows/marche-cache/`, suivant la convention des workflows existants : `workflow.json` (identifiants de credentials uniquement), `credentials.tpl.json` avec des `${VARIABLES}`, `.env.example` versionné, `.env` **jamais** versionné.
+- Déploiement par `/opt/automation/deploy-workflow.sh marche-cache`. Le workflow **n'est pas activé** par le script : l'activer depuis l'interface après un essai manuel concluant.
+- **Politesse réseau, non négociable.** Au plus 1 requête à la fois vers un même domaine, 1 seconde entre deux requêtes, 3 tentatives maximum avec attente croissante sur 429 et 5xx. En-tête `User-Agent: recherche-alternance/1.0 (usage personnel)`. Tout nœud HTTP a un `timeout` explicite.
+- **On ne suppose jamais une adresse e-mail.** Aucune construction du type `prenom.nom@domaine`. Aucune sonde SMTP `RCPT TO` : elle partirait de l'IP résidentielle depuis laquelle l'utilisateur postule et risquerait de la faire blacklister. Seules les adresses **publiées par l'entreprise** sont retenues.
+- **Aucun scraping de LinkedIn.** Conditions d'utilisation, blocage actif, et risque de restriction du compte dont l'utilisateur a besoin pour chercher son alternance.
+- **Ne jamais modifier ni supprimer une ligne Notion existante.** La base « Candidatures IT » contient 2 candidatures saisies à la main. Ce pipeline écrit dans une base **distincte** et ne fait que des créations.
+- Tous les libellés visibles (propriétés Notion, messages Telegram) en français.
+- Un workflow qui échoue doit être **bruyant** : nœud `Error Trigger` relié à Telegram, comme le fait déjà `mail-triage`.
+
+## Zéro doublon : la carte complète
+
+Exigence répétée par l'utilisateur. Chaque endroit où un doublon peut naître, sa clé, et l'état du garde-fou.
+
+| Où | Ce qui se répète | Clé | État |
+|---|---|---|---|
+| Une source, plusieurs codes ROME | même établissement sur M1801 et M1805 | SIRET | ✅ tâche 2, `Map` par SIRET en gardant le meilleur potentiel |
+| Entre sources (La Bonne Boîte + Digital113) | même entreprise vue deux fois | SIRET | ✅ même `Map`, fusion avant le filtre |
+| Digital113 → registre | deux libellés d'adhérent, un seul SIRET | SIRET | ✅ même `Map` |
+| Nouvelle exécution vs Notion | entreprise déjà enregistrée | **SIRET *ou* nom normalisé** | ✅ tâche 3, **double clé** — le SIRET seul manquerait les lignes saisies à la main |
+| Une offre publiée sur 5 sites | même poste, 5 annonces | dédoublonnage multi-critères de JobBot | ✅ existant, couvert par 41 tests |
+| Offre revue à l'exécution suivante | re-signalée | cycle de vie `first_seen` / `last_seen` | ✅ existant |
+| Offre déjà dans Notion | ligne en double | URL de l'annonce | ⏳ plan 08 |
+| Brouillon Gmail recréé | deux brouillons pour la même cible | identifiant de la cible dans le brouillon | ⏳ plan 10 |
+
+### Le cas qu'aucune clé ne résout
+
+Une même alternance est souvent publiée **par le CFA et par l'entreprise**, sous deux raisons sociales différentes. Mesuré sur les 9 employeurs déjà en base : `ESICAD Toulouse` et `ISCOD` sont des organismes de formation, `ADECCO`, `Actual` et `JOB & VOUS` des agences d'intérim.
+
+Aucune clé ne rapproche « ISCOD » de l'entreprise réelle qui accueillera l'alternant : les deux annonces ont un employeur différent, et c'est légitimement deux pistes distinctes. Le document d'objectif de l'utilisateur tranche d'ailleurs la question : « l'organisme compte peu, la plupart acceptent un candidat qui arrive avec un employeur ».
+
+Le filtre `is_training_org` du travail en cours sauvegardé (`stash@{0}`) répond à ce besoin : **écarter les organismes de formation et les agences**, plutôt que tenter de les dédoublonner. À reprendre au plan 08.
+
+## Review Focus
+
+Cinq situations que la spec implique et qu'aucune étape n'exerce spontanément. Chacune est rattachée à la tâche qui doit la traiter.
+
+1. **Une entreprise déjà présente dans Notion** — le workflow relancé deux fois de suite ne doit créer aucun doublon, y compris pour les lignes saisies à la main qui n'ont pas de SIRET. Double clé obligatoire : SIRET *ou* nom normalisé. → Tâche 3.
+2. **Une entreprise administrativement fermée** — le registre expose `etat_administratif` ; une entreprise cessée ne doit jamais atterrir dans la liste. → Tâche 4.
+3. **Un site web injoignable, en erreur, ou qui répond en 30 secondes** — le pipeline doit continuer avec les autres entreprises, pas s'arrêter. → Tâche 5.
+4. **Un domaine sans enregistrement MX** — il n'accepte pas de courrier ; l'entreprise doit être marquée « contact introuvable », jamais dotée d'une adresse inventée. → Tâche 5.
+5. **La Bonne Boîte renvoie 0 résultat ou une erreur pour un code ROME** — les quatre autres codes doivent continuer d'être traités. → Tâche 2.
+
+## File Structure
+
+| Fichier | Rôle |
+|---|---|
+| `docker-stacks/automation/workflows/marche-cache/workflow.json` (créé) | Le workflow n8n complet |
+| `docker-stacks/automation/workflows/marche-cache/credentials.tpl.json` (créé) | Credentials Notion et Brave avec placeholders |
+| `docker-stacks/automation/workflows/marche-cache/.env.example` (créé) | Noms des variables attendues |
+| `docker-stacks/automation/README.md` (modifié) | Documentation du workflow |
+| `docs/plans/2026-09-30-07-marche-cache-n8n.md` (ce fichier) | Le plan |
+
+---
+
+### Task 1: Vérifier l'accès et versionner les gabarits
+
+L'essentiel de l'ancienne tâche 1 a été fait le 30/09/2026 : la base cible est « Candidatures IT », sa propriété `SIRET` est en place, et les cinq clés de recherche sont installées et testées. Il reste à **vérifier** et à **versionner les fichiers qui accompagnent le déploiement**.
+
+**Files:**
+- Create: `docker-stacks/automation/workflows/marche-cache/.env.example`
+- Create: `docker-stacks/automation/workflows/marche-cache/credentials.tpl.json`
+
+**Interfaces:**
+- Produces: les credentials n8n utilisables par le workflow, et un `.env.example` versionné qui documente les variables attendues.
+
+- [ ] **Step 1: Vérifier l'accès Notion et l'intégrité des données existantes**
+
+```bash
+sudo pct exec 102 -- sh -c 'set -a; . /opt/automation/workflows/marche-cache/.env; set +a
+curl -s -m 20 -X POST "https://api.notion.com/v1/databases/$NOTION_DATABASE_ID/query" \
+  -H "Authorization: Bearer $NOTION_TOKEN" -H "Notion-Version: 2022-06-28" \
+  -H "Content-Type: application/json" -d "{\"page_size\":5}"' 2>&1 | cat
+```
+
+Attendu : HTTP 200, et **exactement 2 lignes** — `IWIT Systems` et `We Admin IT`. Si le nombre a changé, s'arrêter : quelque chose écrit déjà dans cette base.
+
+- [ ] **Step 2: Écrire `.env.example`**
+
+`docker-stacks/automation/workflows/marche-cache/.env.example` — les noms seuls, jamais les valeurs :
+
+```sh
+# Notion — jeton d'intégration interne (https://www.notion.so/my-integrations)
+NOTION_TOKEN=
+# Base « Candidatures IT »
+NOTION_DATABASE_ID=
+# Recherche web : ordre d'essai, bascule automatique sur erreur ou quota épuisé.
+# Retirer un nom de la liste le désactive sans toucher au workflow.
+SEARCH_ORDER=serper,tavily,firecrawl,exa,brave
+SERPER_API_KEY=
+TAVILY_API_KEY=
+FIRECRAWL_API_KEY=
+EXA_API_KEY=
+BRAVE_API_KEY=
+# Plafond dur de requêtes de recherche par exécution (protège le budget)
+SEARCH_MAX_PER_RUN=120
+# Telegram — même valeur que le workflow mail-triage
+TELEGRAM_CHAT_ID=
+```
+
+- [ ] **Step 3: Écrire `credentials.tpl.json`**
+
+Un credential par fournisseur, tous en `httpHeaderAuth` sauf Tavily et Firecrawl qui utilisent `Authorization: Bearer`. Le type `httpHeaderAuth` convient aux deux : seul le nom de l'en-tête change.
+
+```json
+[
+  {
+    "id": "notion-alternance",
+    "name": "Notion — Candidatures IT",
+    "type": "httpHeaderAuth",
+    "data": { "name": "Authorization", "value": "Bearer ${NOTION_TOKEN}" }
+  },
+  {
+    "id": "search-serper",
+    "name": "Serper",
+    "type": "httpHeaderAuth",
+    "data": { "name": "X-API-KEY", "value": "${SERPER_API_KEY}" }
+  },
+  {
+    "id": "search-tavily",
+    "name": "Tavily",
+    "type": "httpHeaderAuth",
+    "data": { "name": "Authorization", "value": "Bearer ${TAVILY_API_KEY}" }
+  },
+  {
+    "id": "search-firecrawl",
+    "name": "Firecrawl",
+    "type": "httpHeaderAuth",
+    "data": { "name": "Authorization", "value": "Bearer ${FIRECRAWL_API_KEY}" }
+  },
+  {
+    "id": "search-exa",
+    "name": "Exa",
+    "type": "httpHeaderAuth",
+    "data": { "name": "x-api-key", "value": "${EXA_API_KEY}" }
+  },
+  {
+    "id": "search-brave",
+    "name": "Brave Search",
+    "type": "httpHeaderAuth",
+    "data": { "name": "X-Subscription-Token", "value": "${BRAVE_API_KEY}" }
+  }
+]
+```
+
+- [ ] **Step 4: Récupérer l'identifiant Telegram depuis le workflow existant**
+
+`TELEGRAM_CHAT_ID` est vide dans le `.env`. La valeur existe déjà pour `mail-triage` :
+
+```bash
+sudo pct exec 102 -- sh -c 'grep "^TELEGRAM_CHAT_ID=" /opt/automation/workflows/mail-triage/.env' 2>&1 | cat
+```
+
+La recopier dans `/opt/automation/workflows/marche-cache/.env`.
+
+- [ ] **Step 5: Commit**
+
+```bash
+cd /home/devkram/homelab-infrastructure
+git add docker-stacks/automation/workflows/marche-cache/.env.example \
+        docker-stacks/automation/workflows/marche-cache/credentials.tpl.json
+git commit -m "feat(automation): gabarits de credentials du workflow marche-cache
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+```
+
+
+### Task 2: Collecte La Bonne Boîte, tolérante aux pannes
+
+**Files:**
+- Create: `docker-stacks/automation/workflows/marche-cache/workflow.json`
+
+**Interfaces:**
+- Produces: une liste d'établissements, chacun avec `siret, nom, ville, citycode, lat, lon, effectif, naf_label, potentiel`.
+
+- [ ] **Step 1: Invoquer les skills n8n**
+
+Avant de composer le moindre nœud, invoquer `n8n-mcp-skills:using-n8n-mcp-skills`, puis `n8n-workflow-patterns` (architecture) et `n8n-node-configuration` (paramètres). Utiliser `search_nodes` et `get_node` plutôt que d'écrire la configuration de mémoire : la surface de n8n change entre versions.
+
+- [ ] **Step 2: Déclencheur et liste des recherches**
+
+Nœud `Schedule Trigger`, hebdomadaire, lundi 7h00 (Europe/Paris).
+
+Puis un nœud `Code` (mode « Run Once for All Items ») qui produit une ligne par code ROME :
+
+```javascript
+// 5 codes ROME couvrant les métiers systèmes, réseaux et support.
+// Volumes constatés le 30/09/2026 à 60 km de Toulouse : 74, 78, 66, 15, 15.
+const ROMES = [
+  { code: 'M1801', libelle: 'Administration de systèmes d\'information' },
+  { code: 'M1802', libelle: 'Expertise et support en systèmes d\'information' },
+  { code: 'M1805', libelle: 'Études et développement informatique' },
+  { code: 'M1810', libelle: 'Production et exploitation de systèmes d\'information' },
+  { code: 'I1401', libelle: 'Maintenance informatique et bureautique' },
+];
+const CITYCODE = '31555';   // Toulouse
+const DISTANCE = 60;        // km
+return ROMES.map(r => ({ json: { ...r, citycode: CITYCODE, distance: DISTANCE } }));
+```
+
+- [ ] **Step 3: Interroger La Bonne Boîte, sans laisser une panne tout arrêter**
+
+Nœud `HTTP Request` :
+
+- Méthode `GET`, URL :
+  `=https://labonneboite.francetravail.fr/api/v2/search?rome={{ $json.code }}&citycode={{ $json.citycode }}&distance={{ $json.distance }}&page=1&page_size=100&sort_by=romes.hiring_potential&sort_direction=desc`
+- En-tête `User-Agent: recherche-alternance/1.0 (usage personnel)`
+- `timeout` : 20000
+- `batching` : `batchSize: 1`, `batchInterval: 1000` — une requête par seconde.
+- **`onError: continueRegularOutput`** et `retryOnFail: true`, `maxTries: 3`, `waitBetweenTries: 2000`.
+
+> C'est le point 5 du Review Focus : si un code ROME échoue, les quatre autres doivent aboutir. Sans `onError`, n8n arrête tout le workflow à la première erreur. Consulter la skill `n8n-error-handling` avant de câbler ce nœud.
+
+- [ ] **Step 4: Aplatir et dédoublonner sur le SIRET**
+
+Nœud `Code` (« Run Once for All Items ») :
+
+```javascript
+// Un même établissement peut remonter sur plusieurs codes ROME : on garde
+// celui qui a le meilleur potentiel d'embauche.
+const parSiret = new Map();
+for (const item of $input.all()) {
+  const rome = item.json.rome || '';
+  for (const e of (item.json.items || [])) {
+    if (!e.siret) continue;
+    const existant = parSiret.get(e.siret);
+    const potentiel = Number(e.hiring_potential) || 0;
+    if (existant && existant.potentiel >= potentiel) {
+      if (!existant.romes.includes(e.rome)) existant.romes.push(e.rome);
+      continue;
+    }
+    // Quand un établissement plus prometteur remplace le précédent, il doit HÉRITER
+    // des codes ROME déjà vus, sinon ils sont perdus (bug mesuré : 11 établissements
+    // multi-ROME au lieu de 72).
+    parSiret.set(e.siret, {
+      siret: e.siret,
+      nom: e.company_name || '',
+      ville: e.city || '',
+      citycode: e.citycode || '',
+      lat: e.location?.lat ?? null,
+      lon: e.location?.lon ?? null,
+      // filter(Boolean) écarterait headcount_min: 0, qui est une valeur légitime.
+      effectif: [e.headcount_min, e.headcount_max].filter(v => v !== null && v !== undefined).join('-'),
+      naf_label: e.naf_label || '',
+      potentiel: Math.round(potentiel * 10) / 10,
+      romes: existant ? [...new Set([...existant.romes, e.rome])] : [e.rome],
+    });
+  }
+}
+return [...parSiret.values()].map(json => ({ json }));
+```
+
+- [ ] **Step 5: Essai manuel**
+
+Exécuter le workflow à la main depuis l'interface n8n. Attendu : **88 établissements distincts** (mesuré le 30/09/2026), aucun SIRET en double. Les cinq codes ROME renvoient 248 lignes brutes qui se réduisent à 88 SIRET : les mêmes entreprises apparaissent sur plusieurs codes. Une estimation antérieure annonçait « 200 à 250 distincts » — elle confondait le brut et le distinct.
+
+Vérifier aussi le cas d'erreur : remplacer temporairement un code ROME par une valeur invalide (`ZZZZZ`), réexécuter, et constater que les quatre autres remontent quand même leurs résultats.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add docker-stacks/automation/workflows/marche-cache/workflow.json
+git commit -m "feat(automation): collecte La Bonne Boîte sur 5 codes ROME
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 3: Ne jamais créer un doublon dans Notion
+
+C'est la crainte explicite de l'utilisateur, et la cause du problème qu'on répare : l'ancien pont poussait vers Notion sans jamais vérifier l'existant.
+
+**Files:**
+- Modify: `docker-stacks/automation/workflows/marche-cache/workflow.json`
+
+**Interfaces:**
+- Consumes: la liste d'établissements de la tâche 2.
+- Produces: uniquement les établissements **absents** de Notion.
+
+- [ ] **Step 1: Lire les SIRET déjà connus**
+
+Nœud `HTTP Request`, branché **en parallèle** de la collecte (pas en série) :
+
+- `POST https://api.notion.com/v1/databases/{{ $env.NOTION_DATABASE_ID }}/query`
+- Credential `Notion — Candidatures IT`
+- En-têtes `Notion-Version: 2022-06-28`, `Content-Type: application/json`
+- Corps : `{ "page_size": 100 }`
+- `timeout` : 15000
+
+La réponse Notion est paginée : tant que `has_more` vaut `true`, il faut relancer avec `start_cursor`. Câbler une boucle avec un nœud `If` sur `{{ $json.has_more }}` qui repasse dans le nœud de requête avec `"start_cursor": "{{ $json.next_cursor }}"`.
+
+> Ne pas sauter la pagination. Dès 100 entreprises, une requête unique en oublierait et recréerait des doublons — exactement ce qu'on veut éviter.
+
+- [ ] **Step 2: Construire DEUX ensembles de clés connues, pas un seul**
+
+**Le SIRET seul ne suffit pas.** Les lignes saisies à la main par l'utilisateur n'ont pas de SIRET : la propriété a été créée le 30/09/2026, et les 2 lignes existantes (`IWIT Systems`, `We Admin IT`) l'ont vide. Un contrôle sur le SIRET seul les manquerait et recréerait une ligne pour une entreprise **où l'utilisateur a déjà postulé** — le risque n'est pas le désordre, c'est de recandidater.
+
+Vérifié le 30/09/2026 : `IWIT SYSTEMS` existe bien au registre (SIRET `52510845200026`, Toulouse, NAF 62.02B), donc elle appartient à la population que ce pipeline ratisse et peut remonter d'une source à tout moment.
+
+Nœud `Code` :
+
+```javascript
+// Normalisation des raisons sociales : c'est la clé de repli quand le SIRET manque.
+// « IWIT Systems », « IWIT SYSTEMS SAS » et « iwit-systems » donnent la même clé.
+const FORMES = /\b(SAS|SASU|SARL|EURL|SA|SCOP|SCI|SNC|GIE|EI|EIRL|GROUP|GROUPE|FRANCE)\b/g;
+const normNom = s => String(s || '')
+  .toUpperCase()
+  .normalize('NFD').replace(/[̀-ͯ]/g, '')   // enlève les accents
+  .replace(FORMES, '')
+  .replace(/[^A-Z0-9]/g, '');
+
+const sirets = new Set();
+const noms = new Set();
+for (const item of $input.all()) {
+  for (const page of (item.json.results || [])) {
+    const p = page.properties || {};
+    const siret = (p.SIRET?.rich_text || []).map(t => t.plain_text).join('').trim();
+    if (siret) sirets.add(siret);
+    const nom = (p.Entreprise?.title || []).map(t => t.plain_text).join('').trim();
+    if (nom) noms.add(normNom(nom));
+  }
+}
+return [{ json: { sirets: [...sirets], noms: [...noms] } }];
+```
+
+- [ ] **Step 3: Filtrer sur les deux clés**
+
+Nœud `Code` (« Run Once for All Items ») qui croise les deux branches :
+
+```javascript
+const FORMES = /\b(SAS|SASU|SARL|EURL|SA|SCOP|SCI|SNC|GIE|EI|EIRL|GROUP|GROUPE|FRANCE)\b/g;
+const normNom = s => String(s || '')
+  .toUpperCase()
+  .normalize('NFD').replace(/[̀-ͯ]/g, '')
+  .replace(FORMES, '')
+  .replace(/[^A-Z0-9]/g, '');
+
+const connu = $('Clés connues').first().json;
+const sirets = new Set(connu.sirets || []);
+const noms = new Set(connu.noms || []);
+
+const tous = $('Dédoublonner').all();
+const nouveaux = tous.filter(i => {
+  const j = i.json;
+  if (j.siret && sirets.has(j.siret)) return false;      // clé forte
+  if (noms.has(normNom(j.nom))) return false;            // clé de repli
+  return true;
+});
+console.log(`${nouveaux.length} nouvelles sur ${tous.length} — ${tous.length - nouveaux.length} déjà connues`);
+return nouveaux;
+```
+
+> Adapter les noms entre `$('…')` aux noms réels des nœuds. La skill `n8n-expression-syntax` explique cette syntaxe de référence entre nœuds — la consulter, c'est la source d'erreur la plus fréquente.
+>
+> **La clé de repli peut écarter un vrai nouveau prospect** si deux entreprises distinctes portent des noms qui se normalisent pareil. C'est le bon compromis : rater une entreprise coûte moins cher que de recandidater chez une autre. Le journal affiche le décompte des deux, pour que le cas se voie.
+
+- [ ] **Step 3 bis: Renseigner le SIRET des lignes existantes**
+
+Tant que `IWIT Systems` et `We Admin IT` n'ont pas de SIRET, le dédoublonnage repose pour elles sur la clé faible. Une fois pour toutes, écrire leur SIRET — c'est une modification de contenu, donc **la seule autorisée sur une ligne existante**, et elle se fait à la main plutôt que par le workflow :
+
+```bash
+# IWIT SYSTEMS : SIRET vérifié au registre le 30/09/2026
+sudo pct exec 102 -- sh -c 'set -a; . /opt/automation/workflows/marche-cache/.env; set +a
+curl -s -o /dev/null -w "%{http_code}\n" -X PATCH "https://api.notion.com/v1/pages/<ID_DE_LA_LIGNE>" \
+  -H "Authorization: Bearer $NOTION_TOKEN" -H "Notion-Version: 2022-06-28" \
+  -H "Content-Type: application/json" \
+  -d "{\"properties\":{\"SIRET\":{\"rich_text\":[{\"text\":{\"content\":\"52510845200026\"}}]}}}"'
+```
+
+`We Admin IT` n'a **aucune correspondance au registre** (vérifié le 30/09/2026) : laisser son SIRET vide, la clé de repli sur le nom la protège.
+
+- [ ] **Step 4: Test du Review Focus n°1 — l'idempotence**
+
+Exécuter le workflow **deux fois de suite**, à la main.
+
+- Premier passage : N entreprises créées dans Notion.
+- Second passage, immédiatement après : **0 création**, et le journal du nœud affiche `0 nouvelles entreprises sur ~250`.
+
+Vérifier dans Notion que le nombre total de lignes n'a pas bougé entre les deux passages. **Si une seule ligne a été dupliquée, s'arrêter et corriger avant de continuer.**
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add docker-stacks/automation/workflows/marche-cache/workflow.json
+git commit -m "feat(automation): garde-fou anti-doublon sur le SIRET avant écriture Notion
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 4: Enrichissement par le registre officiel
+
+**Files:**
+- Modify: `docker-stacks/automation/workflows/marche-cache/workflow.json`
+
+**Interfaces:**
+- Produces: chaque entreprise gagne `dirigeants` (texte), `date_creation`, `etat_administratif`, `effectif_registre`.
+
+- [ ] **Step 1: Limiter le débit**
+
+Nœud `Split In Batches`, `batchSize: 1`. Tout ce qui suit s'exécute entreprise par entreprise, ce qui rend les limites de débit tenables et les erreurs isolables.
+
+- [ ] **Step 2: Interroger le registre**
+
+Nœud `HTTP Request` :
+
+- `GET https://recherche-entreprises.api.gouv.fr/search?q={{ $json.siret }}&per_page=1`
+- `timeout` : 15000, `batchInterval` : 1000
+- `onError: continueRegularOutput`, `retryOnFail: true`, `maxTries: 3`
+
+Cette API est publique et sans clé — vérifié le 30/09/2026.
+
+- [ ] **Step 3: Extraire les dirigeants et écarter les entreprises fermées**
+
+Nœud `Code` (« Run Once for Each Item ») :
+
+```javascript
+const base = $('Filtrer les nouvelles').item.json;
+const r = ($json.results || [])[0] || {};
+
+const dirigeants = (r.dirigeants || [])
+  .filter(d => d.type_dirigeant === 'personne physique')
+  .map(d => `${(d.prenoms || '').trim()} ${(d.nom || '').trim()} — ${d.qualite || ''}`.trim())
+  .slice(0, 4)
+  .join(' · ');
+
+return [{ json: {
+  ...base,
+  dirigeants,
+  date_creation: r.date_creation || '',
+  etat_administratif: r.etat_administratif || '',
+  effectif_registre: r.tranche_effectif_salarie || '',
+} }];
+```
+
+- [ ] **Step 4: Filtrer les entreprises cessées — Review Focus n°2**
+
+Nœud `Filter` : garder uniquement `{{ $json.etat_administratif }}` **égal à** `A` (actif).
+
+Une entreprise cessée qui remonte de La Bonne Boîte (dont l'index a du retard) ne doit jamais atterrir dans la liste : écrire à une société fermée est une perte de temps pure.
+
+- [ ] **Step 5: Vérifier sur un cas réel**
+
+Exécuter et contrôler qu'au moins une entreprise porte des dirigeants nommés. Référence connue : le SIRET `84484409200248` (Econocom Services & Solutions, Labège) renvoie « ANGEL BENGUIGUI DIAZ — Président de SAS ».
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add docker-stacks/automation/workflows/marche-cache/workflow.json
+git commit -m "feat(automation): dirigeants et état administratif depuis le registre
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 5: Le nœud contact — trouver, jamais deviner
+
+**Files:**
+- Modify: `docker-stacks/automation/workflows/marche-cache/workflow.json`
+
+**Interfaces:**
+- Produces: `site`, `contact` (email publié ou vide), `decideurs` (personnes et rôles), `confiance` (`Vérifié` / `Probable` / `Introuvable`).
+
+- [ ] **Step 1: Trouver le domaine**
+
+Nœud `HTTP Request` vers Brave Search :
+
+- `GET https://api.search.brave.com/res/v1/web/search?q={{ encodeURIComponent($json.nom + ' ' + $json.ville + ' site officiel') }}&count=5`
+- Credential `Brave Search API`, en-tête `Accept: application/json`
+- `timeout` : 15000, `onError: continueRegularOutput`
+
+Puis un nœud `Code` qui retient le premier résultat dont le domaine n'est **pas** un annuaire :
+
+```javascript
+// Les annuaires d'entreprises polluent les résultats : ils ressortent avant
+// le site officiel. Constaté le 30/09/2026 sur des recherches réelles.
+const ANNUAIRES = [
+  'societe.com', 'verif.com', 'pappers.fr', 'infogreffe.fr', 'annuaire-entreprises',
+  'linkedin.com', 'facebook.com', 'indeed.', 'hellowork', 'glassdoor',
+  'lejournaldesentreprises', 'bodacc', 'data.gouv.fr', 'xerfi.com', 'topograph',
+];
+const base = $('Écarter les entreprises fermées').item.json;
+const resultats = $json.web?.results || [];
+let site = '';
+for (const r of resultats) {
+  const url = r.url || '';
+  const hote = (() => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; } })();
+  if (!hote || ANNUAIRES.some(a => hote.includes(a))) continue;
+  site = hote;
+  break;
+}
+return [{ json: { ...base, site } }];
+```
+
+- [ ] **Step 2: Vérifier que le domaine reçoit du courrier — Review Focus n°4**
+
+n8n n'a pas de nœud DNS. Utiliser un service DNS-over-HTTPS public, sans clé :
+
+Nœud `HTTP Request` : `GET https://dns.google/resolve?name={{ $json.site }}&type=MX`, `timeout` 10000, `onError: continueRegularOutput`.
+
+Puis nœud `Code` :
+
+```javascript
+const base = $('Trouver le domaine').item.json;
+// Status 0 = NOERROR. La présence d'une réponse de type 15 (MX) prouve que
+// le domaine est configuré pour recevoir du courrier.
+const mx = ($json.Answer || []).some(a => a.type === 15);
+return [{ json: { ...base, mx } }];
+```
+
+Si `mx` vaut `false`, l'entreprise part directement vers la sortie « contact introuvable » : inutile de scraper un domaine qui ne reçoit pas de mail.
+
+- [ ] **Step 3: Récupérer l'accueil du site**
+
+Nœud `HTTP Request` :
+
+- `GET https://{{ $json.site }}`
+- `responseFormat: text`
+- En-tête `User-Agent: recherche-alternance/1.0 (usage personnel)`
+- **`timeout` : 12000** — Review Focus n°3 : un site lent ne doit pas bloquer les 249 autres.
+- `onError: continueRegularOutput`, `retryOnFail: false` (inutile d'insister sur un site en panne)
+- `batchInterval` : 1000
+
+- [ ] **Step 4: Extraire adresses et pages à suivre**
+
+Nœud `Code` :
+
+```javascript
+const base = $('Vérifier MX').item.json;
+const html = typeof $json.data === 'string' ? $json.data : '';
+
+const RX_MAIL = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+const mails = [...new Set((html.match(RX_MAIL) || []))]
+  .filter(m => !/\.(png|jpe?g|gif|svg|webp|css|js)$/i.test(m))
+  .filter(m => m.toLowerCase().endsWith('@' + base.site.toLowerCase()));
+
+// Pages qui portent habituellement les contacts et les équipes.
+const RX_LIEN = /href="([^"]*(?:contact|mention|legal|equipe|team|propos|about|recrut|career|job)[^"]*)"/gi;
+const suites = [...new Set([...html.matchAll(RX_LIEN)].map(m => m[1]))]
+  .filter(h => !h.startsWith('mailto:') && !/\.(png|jpe?g|gif|svg|pdf)$/i.test(h))
+  .slice(0, 4);
+
+return [{ json: { ...base, mails, suites } }];
+```
+
+> Le filtre sur le domaine de l'entreprise est important : les sites embarquent des adresses de prestataires, d'agences web et d'outils tiers. Seule une adresse **du domaine de l'entreprise** est un contact valable.
+
+- [ ] **Step 5: Suivre les pages contact, mentions légales et équipe**
+
+Nœud `HTTP Request` en boucle sur `suites` (au plus 4 pages), mêmes réglages qu'à l'étape 3. Puis un nœud `Code` qui fusionne :
+
+```javascript
+const base = $('Extraire accueil').item.json;
+const RX_MAIL = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+// Rôles qui décident d'une alternance en systèmes et réseaux.
+const RX_ROLE = /\b(DSI|RSSI|CTO|CEO|DRH|Chief People Officer|Head of (?:Engineering|IT|People)|Responsable (?:informatique|infrastructure|technique|RH|recrutement)|Directeur (?:technique|informatique|des systèmes))\b/gi;
+
+let mails = [...(base.mails || [])];
+let roles = [];
+for (const item of $input.all()) {
+  const html = typeof item.json.data === 'string' ? item.json.data : '';
+  mails.push(...(html.match(RX_MAIL) || []));
+  roles.push(...(html.match(RX_ROLE) || []));
+}
+mails = [...new Set(mails)]
+  .filter(m => m.toLowerCase().endsWith('@' + base.site.toLowerCase()))
+  .filter(m => !/\.(png|jpe?g|gif|svg|css|js)$/i.test(m));
+
+// Une adresse de recrutement vaut mieux qu'une adresse générale.
+const RANG = m => {
+  const l = m.toLowerCase();
+  if (/(recrut|rh|job|career|talent|emploi)/.test(l)) return 0;
+  if (/(contact|hello|bonjour)/.test(l)) return 1;
+  if (/(info|accueil)/.test(l)) return 2;
+  return 3;
+};
+mails.sort((a, b) => RANG(a) - RANG(b));
+
+const contact = mails[0] || '';
+const confiance = contact ? 'Vérifié' : (base.mx ? 'Probable' : 'Introuvable');
+
+return [{ json: {
+  ...base,
+  contact,
+  autres_contacts: mails.slice(1, 4).join(' · '),
+  decideurs: [...new Set(roles)].slice(0, 6).join(' · '),
+  confiance,
+} }];
+```
+
+> **`confiance` dit la vérité et rien d'autre.** `Vérifié` : une adresse publiée par l'entreprise a été trouvée. `Probable` : le domaine reçoit du courrier mais aucune adresse n'est publiée — à chercher à la main. `Introuvable` : ni domaine exploitable, ni MX. On n'écrit jamais d'adresse construite dans ce champ.
+
+- [ ] **Step 6: Vérifier sur le cas de référence**
+
+Référence mesurée le 30/09/2026 : `pictarine.com` doit donner `contact@pictarine.com`, `confiance = Vérifié`, MX présent, et des rôles parmi `Chief People Officer` et `Head of Engineering`.
+
+Vérifier aussi les trois cas dégradés :
+- un domaine inexistant → `Introuvable`, le workflow continue ;
+- un site qui ne répond pas dans les 12 secondes → l'entreprise ressort avec `Probable`, le workflow continue ;
+- une entreprise dont le site n'expose aucune adresse → `Probable`, jamais une adresse inventée.
+
+- [ ] **Step 7: Écrire dans Notion et récapituler**
+
+Un nœud `Code` construit le corps, en respectant **exactement** le schéma réel de « Candidatures IT » (section « La base Notion cible » plus haut). Les noms de propriétés et les valeurs de `select` doivent correspondre au caractère près, sinon Notion renvoie 400.
+
+```javascript
+const j = $json;
+const txt = v => ({ rich_text: [{ text: { content: String(v ?? '').slice(0, 1900) } }] });
+
+// « Adéquation avec le TSSR » : on ne dispose à ce stade d'aucune annonce, seulement
+// du secteur et du potentiel d'embauche. On reste donc prudent — le plan 09 affinera
+// avec Groq quand il y aura une offre à lire.
+const adequation = j.potentiel >= 50 ? 'Forte' : (j.potentiel >= 20 ? 'Moyenne' : 'Faible');
+
+const notes = [
+  j.dirigeants ? `Dirigeants : ${j.dirigeants}` : '',
+  j.effectif_registre ? `Effectif : ${j.effectif_registre}` : '',
+  j.naf_label ? `Secteur : ${j.naf_label}` : '',
+  j.potentiel ? `Potentiel d'embauche : ${j.potentiel}` : '',
+  `Contact : ${j.confiance}`,
+  j.autres_contacts ? `Autres adresses : ${j.autres_contacts}` : '',
+  j.romes?.length ? `Codes ROME : ${j.romes.join(', ')}` : '',
+].filter(Boolean).join('\n');
+
+return [{ json: {
+  parent: { database_id: $env.NOTION_DATABASE_ID },
+  properties: {
+    'Entreprise': { title: [{ text: { content: (j.nom || 'Inconnu').slice(0, 200) } }] },
+    'SIRET': txt(j.siret),
+    'Statut': { select: { name: 'À analyser' } },
+    'Source': { select: { name: j.source === 'Digital113' ? 'Réseau' : 'Candidature spontanée' } },
+    'Localisation': txt(j.ville),
+    'Contact': txt(j.decideurs),
+    'E-mail': txt(j.contact),
+    'Adéquation avec le TSSR': { select: { name: adequation } },
+    'Lien de l\\'offre': { url: j.site ? `https://${j.site}` : null },
+    'Notes': txt(notes),
+    'Date de découverte': { date: { start: new Date().toISOString().slice(0, 10) } },
+    'Prochaine action': txt(j.contact ? 'Rédiger la candidature spontanée' : 'Chercher le contact à la main'),
+  },
+} }];
+```
+
+> `Statut` est initialisé à **`À analyser`**, la première étape de l'entonnoir défini par l'utilisateur. Pas `À candidater` : c'est lui qui décide de passer une entreprise à l'étape suivante.
+>
+> `Téléphone`, `Poste`, `Date de candidature`, `Date de relance` et `Créé le` ne sont **pas** écrits : ils appartiennent à l'utilisateur ou n'ont pas de sens à ce stade.
+
+Puis nœud `HTTP Request` : `POST https://api.notion.com/v1/pages`, credential `Notion — Candidatures IT`, en-têtes `Notion-Version: 2022-06-28` et `Content-Type: application/json`, corps `={{ JSON.stringify($json) }}`, `timeout` 15000, `onError: continueRegularOutput` (une ligne refusée ne doit pas perdre les 249 autres).
+
+Puis un nœud `Telegram` avec le récapitulatif :
+
+```
+🏢 Marché caché TSSR — <N> nouvelles entreprises
+✅ <x> avec contact vérifié
+🔍 <y> à chercher à la main
+📍 Top potentiel : <nom> (<ville>, <potentiel>)
+```
+
+Enfin, un `Error Trigger` relié à un second nœud Telegram, sur le modèle de `mail-triage`.
+
+- [ ] **Step 8: Valider le workflow avant de déployer**
+
+```
+validate_workflow(workflow.json)
+```
+
+Corriger tout ce que la validation signale. Consulter `n8n-validation-expert` pour distinguer les vraies erreurs des faux positifs.
+
+- [ ] **Step 9: Déployer, exécuter, et vérifier l'idempotence une dernière fois**
+
+```bash
+sudo pct exec 102 -- /opt/automation/deploy-workflow.sh marche-cache 2>&1 | cat
+```
+
+Exécuter à la main depuis l'interface. Puis **réexécuter immédiatement** et vérifier que le nombre de lignes Notion n'a pas bougé.
+
+Vérifier enfin que n8n et `mail-triage` sont intacts :
+
+```bash
+curl -s -o /dev/null -w "n8n HTTP %{http_code}\n" http://192.168.1.151:5678/healthz
+```
+
+- [ ] **Step 10: Documenter et commiter**
+
+Ajouter à `docker-stacks/automation/README.md` :
+
+```markdown
+- `marche-cache` — entreprises toulousaines qui embauchent en informatique (La Bonne Boîte,
+  5 codes ROME), enrichies par le registre des entreprises et par un contact vérifié sur
+  leur site. Écrit dans la base Notion « Candidatures IT » au statut « À analyser », sans jamais créer de
+  doublon (clé : le SIRET) ni deviner une adresse e-mail.
+```
+
+```bash
+git add docker-stacks/automation/workflows/marche-cache/ docker-stacks/automation/README.md
+git commit -m "feat(automation): workflow marché caché avec contact vérifié
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 6: Deuxième source — l'annuaire du cluster Digital113
+
+La Bonne Boîte est une **estimation statistique** de propension à embaucher. Digital113 est une **liste choisie** : des entreprises du numérique d'Occitanie qui ont payé une adhésion à un cluster local. Population plus petite, mais mieux ciblée, et qui rattrape les entreprises que l'indice statistique manque.
+
+**Files:**
+- Modify: `docker-stacks/automation/workflows/marche-cache/workflow.json`
+
+**Interfaces:**
+- Produces: des entreprises au même format que la tâche 2, injectées **avant** le dédoublonnage de la tâche 3 — elles passent donc par le même garde-fou anti-doublon et le même nœud contact.
+
+- [ ] **Step 1: Récupérer la liste des adhérents**
+
+Nœud `HTTP Request` : `GET https://www.digital113.fr/adherents`, `responseFormat: text`, `timeout` 20000, `User-Agent` du projet, `onError: continueRegularOutput`.
+
+Vérifié le 30/09/2026 : la page renvoie environ 133 Ko de HTML **statique** (pas de chargement dynamique), et contient les noms d'adhérents en clair.
+
+- [ ] **Step 2: Extraire les raisons sociales**
+
+Nœud `Code`. Attention : la page contient aussi des noms de communes (`BALMA`, `BLAGNAC`, `CAPDENAC`…) et des éléments de navigation (`Accueil`, `Agenda`) qu'il faut écarter.
+
+```javascript
+const html = typeof $json.data === 'string' ? $json.data : '';
+const NAVIGATION = new Set(['ACCUEIL', 'AGENDA', 'CONTACT', 'ADHERENTS', 'ACTUALITES', 'APPELEZ-NOUS']);
+// Communes d'Occitanie qui apparaissent comme localisation, pas comme adhérent.
+const COMMUNES = new Set(['BALMA','BLAGNAC','CAPDENAC','TOULOUSE','MONTPELLIER','LABEGE','COLOMIERS','NIMES','PERPIGNAN','ALBI','CASTRES','RODEZ','AUCH','TARBES','MURET','SETE','BEZIERS','CARCASSONNE']);
+
+const noms = [...new Set(
+  html.split(/<[^>]*>/)
+      .map(s => s.trim())
+      .filter(s => /^[A-Z0-9][A-Za-z0-9&.\-' ]{2,40}$/.test(s))
+)]
+  .filter(n => !NAVIGATION.has(n.toUpperCase()))
+  .filter(n => !COMMUNES.has(n.toUpperCase()));
+
+return noms.map(nom => ({ json: { nom, source: 'Digital113' } }));
+```
+
+- [ ] **Step 3: Retrouver le SIRET de chaque adhérent**
+
+Le dédoublonnage de la tâche 3 repose sur le SIRET ; il faut donc le résoudre depuis la raison sociale.
+
+Nœud `HTTP Request` : `GET https://recherche-entreprises.api.gouv.fr/search?q={{ encodeURIComponent($json.nom) }}&departement=31&per_page=1`, `timeout` 15000, `batchInterval` 1000, `onError: continueRegularOutput`.
+
+Puis un nœud `Code` qui ne garde que les correspondances **sûres**, et jette les autres :
+
+```javascript
+const base = $('Extraire adhérents').item.json;
+const r = ($json.results || [])[0];
+// Sans correspondance nette, on jette : une mauvaise entreprise dans la liste
+// coûte plus cher qu'une entreprise manquante.
+if (!r || r.etat_administratif !== 'A') return [];
+
+const norm = s => (s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+if (!norm(r.nom_complet).includes(norm(base.nom)) && !norm(base.nom).includes(norm(r.nom_complet))) return [];
+
+const siege = r.siege || {};
+return [{ json: {
+  siret: siege.siret || '',
+  nom: r.nom_complet || base.nom,
+  ville: siege.libelle_commune || '',
+  citycode: siege.commune || '',
+  lat: siege.latitude ? Number(siege.latitude) : null,
+  lon: siege.longitude ? Number(siege.longitude) : null,
+  effectif: r.tranche_effectif_salarie || '',
+  naf_label: siege.activite_principale || '',
+  potentiel: 0,            // pas d'indice statistique pour cette source
+  romes: [],
+  source: 'Digital113',
+} }];
+```
+
+- [ ] **Step 4: Fusionner avec la branche La Bonne Boîte**
+
+Nœud `Merge` en mode `append`, **avant** le filtre anti-doublon de la tâche 3. Les entreprises présentes dans les deux sources sont éliminées par le SIRET, comme les autres.
+
+La propriété `Source` existe déjà : Digital113 est écrit en `Réseau`, La Bonne Boîte en `Candidature spontanée`.
+
+- [ ] **Step 5: Vérifier**
+
+Exécuter à la main. Attendu : des entreprises supplémentaires par rapport au passage précédent, aucune commune ni élément de navigation dans la liste, aucun doublon avec La Bonne Boîte.
+
+Contrôler **à l'œil** une dizaine de lignes issues de Digital113 : la correspondance nom → SIRET est l'étape la plus risquée de tout ce plan. Si plus d'une ligne sur dix est fausse, durcir le test de correspondance avant de continuer.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add docker-stacks/automation/workflows/marche-cache/workflow.json
+git commit -m "feat(automation): adhérents Digital113 comme seconde source
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+```
+
+---
+
+## Sources : ce qui est automatisable, et ce qui ne l'est pas
+
+Le marché de l'emploi tech passe largement par des canaux communautaires. Tous ne se scrapent pas, et la différence n'est pas technique mais juridique.
+
+**Automatisable, et retenu :**
+
+| Source | État |
+|---|---|
+| La Bonne Boîte (5 codes ROME) | ✅ vérifié, sans clé — tâche 2 |
+| Registre des entreprises | ✅ vérifié, sans clé — tâche 4 |
+| Site des entreprises (contact, mentions légales, équipe) | ✅ vérifié — tâche 5 |
+| Annuaire Digital113 (~300 adhérents) | ✅ vérifié, HTML statique — tâche 6 |
+| Page emploi Digital113 (via Taleez) | à étudier au plan 08 |
+| API France Travail et La Bonne Alternance | comptes gratuits à créer — plan 08 |
+| Flux RSS des pages carrières | à étudier au plan 08 |
+
+**Non retenu, et ce n'est pas un choix technique :**
+
+- **Discord.** Lire par programme un serveur où l'on est simplement membre exige soit un *bot* invité par l'administrateur du serveur — impossible sur un serveur qu'on a juste rejoint — soit son propre jeton utilisateur, ce que Discord interdit explicitement et sanctionne par la suppression du compte.
+- **Slack.** Même situation : un espace communautaire exige qu'un administrateur installe une application.
+- **LinkedIn.** Conditions d'utilisation, blocage actif, et risque de restriction du compte.
+
+Dans les trois cas, le risque porte sur **le compte dont l'utilisateur a besoin pour chercher son alternance**. Un robot qui fait bannir son Discord ou son LinkedIn lui coûte infiniment plus cher que les quelques annonces qu'il aurait ramenées.
+
+**Ce que l'automatisation fait à la place :** elle prend en charge tout le travail répétitif — collecte, tri, contacts, brouillons, relances — pour libérer du temps à l'utilisateur, afin qu'il soit présent lui-même sur ces canaux. Être visible dans une communauté tech toulousaine n'est pas une tâche qu'un robot peut déléguer : c'est précisément ce qui ne se délègue pas.
+
+Le plan 11 (rappel hebdomadaire) peut inclure ce rappel dans le message du lundi.
+
+## Suite (plans à écrire après celui-ci)
+
+À écrire seulement une fois ce plan vert, pas avant.
+
+| Plan | Contenu | Dépend de |
+|---|---|---|
+| 08 — Offres et sources officielles | API France Travail « Offres d'emploi v2 » (dont le champ contact du recruteur) et API La Bonne Alternance, dans n8n. JobBot appelé en HTTP (`POST /api/start`, `GET /api/offers`) pour les 4 sites sans API | 07 |
+| 09 — Qualification Groq en 3 étages | Étage 1 : filtre déterministe. Étage 2 : `llama-3.1-8b-instant` en tri binaire. Étage 3 : `llama-3.3-70b-versatile` sur la douzaine retenue. Quota gratuit : ~100 K jetons/jour sur le 70B, ~500 K sur le 8B | 07, 08 |
+| 10 — Brouillons Gmail | `imaplib`-équivalent côté n8n : dépôt dans `[Gmail]/Drafts` avec le mot de passe d'application déjà présent. Le mail s'adresse nommément au décideur trouvé en tâche 5, sur l'adresse publiée. **Aucun envoi automatique** | 09 |
+| 11 — Relances et rythme | Cron n8n → Telegram le lundi : brouillons en attente, relances dues. Objectif utilisateur : 5 candidatures et 2 relances par semaine | 10 |
+| 12 — Retrait du cron hôte | Suppression de `scripts/run-jobbot.sh` et de toute tâche planifiée sur l'hyperviseur : plus rien ne se déclenche en dehors de n8n | 08 |

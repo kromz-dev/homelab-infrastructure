@@ -24,3 +24,19 @@ It substitutes the `.env` values into the templates and imports the credentials 
 ## Workflows available
 
 - `mail-triage` — new mail (IMAP) → Groq judges importance → Telegram notification only if important.
+
+## JobBot (recherche d'alternance)
+
+`jobbot-tssr` fait tourner [JobBot](https://github.com/kromz-dev/jobbot) avec le profil
+`tssr-alternance` : alternance systèmes et réseaux autour de Toulouse (60 km).
+
+- Tableau de bord : http://192.168.1.151:8766
+- Données : volume `jobbot_tssr_data` (base SQLite, jamais dans git)
+- Profil : `jobbot/profiles/tssr-alternance.json` dans le dépôt JobBot
+
+L'image fige **Python 3.12** : `python-jobspy` (source Indeed) fige `numpy==1.26.3`,
+qui ne compile pas sur le Python 3.13 de l'hôte Proxmox. Ne pas faire tourner JobBot
+directement sur l'hôte.
+
+Une base de données ne contient qu'un seul profil. Pour en ajouter un, créer un service
+avec son propre volume et son propre `JOBBOT_PROFILE`.

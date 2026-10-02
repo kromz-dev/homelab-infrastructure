@@ -1,0 +1,432 @@
+{
+  "updatedAt": "2026-09-30T21:50:09.452Z",
+  "createdAt": "2026-09-30T21:50:09.452Z",
+  "id": "marche-cache",
+  "name": "Marché caché TSSR — entreprises qui embauchent en informatique",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "id": "5b1f0c2e-7a11-4d0e-9a51-0a6c1e000001",
+      "name": "Chaque lundi 7h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * 1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "5b1f0c2e-7a11-4d0e-9a51-0a6c1e000005",
+      "name": "Lancement manuel",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        160
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "5b1f0c2e-7a11-4d0e-9a51-0a6c1e000002",
+      "name": "Codes ROME",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// 5 codes ROME couvrant les métiers systèmes, réseaux et support.\n// Volumes constatés le 30/09/2026 à 60 km de Toulouse : 74, 78, 66, 15, 15.\nconst ROMES = [\n  { code: 'M1801', libelle: 'Administration de systèmes d\\'information' },\n  { code: 'M1802', libelle: 'Expertise et support en systèmes d\\'information' },\n  { code: 'M1805', libelle: 'Études et développement informatique' },\n  { code: 'M1810', libelle: 'Production et exploitation de systèmes d\\'information' },\n  { code: 'I1401', libelle: 'Maintenance informatique et bureautique' },\n];\nconst CITYCODE = '31555';   // Toulouse\nconst DISTANCE = 60;        // km\nreturn ROMES.map(r => ({ json: { ...r, citycode: CITYCODE, distance: DISTANCE } }));\n"
+      }
+    },
+    {
+      "id": "5b1f0c2e-7a11-4d0e-9a51-0a6c1e000003",
+      "name": "La Bonne Boîte",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        0
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "parameters": {
+        "method": "GET",
+        "url": "=https://labonneboite.francetravail.fr/api/v2/search?rome={{ $json.code }}&citycode={{ $json.citycode }}&distance={{ $json.distance }}&page=1&page_size=100&sort_by=romes.hiring_potential&sort_direction=desc",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "recherche-alternance/1.0 (usage personnel)"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1000
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "5b1f0c2e-7a11-4d0e-9a51-0a6c1e000004",
+      "name": "Dédoublonner",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Un même établissement peut remonter sur plusieurs codes ROME : on garde\n// celui qui a le meilleur potentiel d'embauche.\nconst parSiret = new Map();\nlet enEchec = 0;\nfor (const item of $input.all()) {\n  // Un code ROME en échec (onError: continueRegularOutput) ressort sans `items` : on le signale et on continue.\n  if (!Array.isArray(item.json.items)) { enEchec++; continue; }\n  for (const e of item.json.items) {\n    if (!e.siret) continue;\n    const existant = parSiret.get(e.siret);\n    const potentiel = Number(e.hiring_potential) || 0;\n    if (existant && existant.potentiel >= potentiel) {\n      if (!existant.romes.includes(e.rome)) existant.romes.push(e.rome);\n      continue;\n    }\n    parSiret.set(e.siret, {\n      siret: e.siret,\n      nom: e.company_name || '',\n      ville: e.city || '',\n      citycode: e.citycode || '',\n      lat: e.location?.lat ?? null,\n      lon: e.location?.lon ?? null,\n      effectif: [e.headcount_min, e.headcount_max].filter(v => v !== null && v !== undefined).join('-'),\n      naf_label: e.naf_label || '',\n      potentiel: Math.round(potentiel * 10) / 10,\n      romes: existant ? [...existant.romes, e.rome] : [e.rome],\n    });\n  }\n}\nconsole.log(`${parSiret.size} établissements distincts — ${enEchec} code(s) ROME en échec sur ${$input.all().length}`);\nreturn [...parSiret.values()].map(json => ({ json }));\n"
+      }
+    },
+    {
+      "id": "5b1f0c2e-7a11-4d0e-9a51-0a6c1e000006",
+      "name": "Lire Notion",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        0
+      ],
+      "executeOnce": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "notion-alternance",
+          "name": "Notion — Candidatures IT"
+        }
+      },
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/databases/d24e8ee1-80ce-4cb6-848c-45e44be4a096/query",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"page_size\": 100}",
+        "options": {
+          "timeout": 15000,
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "body",
+                    "name": "start_cursor",
+                    "value": "={{ $response.body.next_cursor }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.has_more }}",
+              "limitPagesFetched": true,
+              "maxRequests": 50,
+              "requestInterval": 400
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "5b1f0c2e-7a11-4d0e-9a51-0a6c1e000007",
+      "name": "Clés connues",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Clés déjà présentes dans Notion : SIRET (clé forte) et noms (clé de repli).\n// Les lignes saisies à la main n'ont pas de SIRET : le nom est alors la seule clé qui les protège.\nconst pages = [];\nconst reponses = $input.all();\n// Garde-fous : une lecture Notion illisible ou incomplète ne doit JAMAIS passer pour « base vide »,\n// sinon les 88 entreprises ressortiraient comme nouvelles.\nif (!reponses.length || reponses.some(r => !Array.isArray(r.json.results))) {\n  throw new Error('Lecture Notion invalide : pas de champ results');\n}\nif (reponses[reponses.length - 1].json.has_more) {\n  throw new Error('Lecture Notion incomplète : has_more encore vrai (plafond de pages atteint)');\n}\nfor (const r of reponses) pages.push(...r.json.results);\n// Une propriété renommée viderait silencieusement une des deux clés.\nif (pages.length && (!pages[0].properties?.SIRET || !pages[0].properties?.Entreprise)) {\n  throw new Error('Propriété SIRET ou Entreprise introuvable dans la base Notion');\n}\nconst sirets = new Set();\nconst noms = new Set();\nfor (const page of pages) {\n  const p = page.properties;\n  const siret = (p.SIRET.rich_text || []).map(t => t.plain_text).join('').replace(/\\D/g, '');\n  if (siret) sirets.add(siret);\n  const nom = (p.Entreprise.title || []).map(t => t.plain_text).join('').trim();\n  if (nom) noms.add(nom);\n}\nconsole.log(`Notion : ${pages.length} ligne(s), ${sirets.size} SIRET, ${noms.size} nom(s)`);\nreturn [{ json: { lignes: pages.length, sirets: [...sirets], noms: [...noms] } }];\n"
+      }
+    },
+    {
+      "id": "5b1f0c2e-7a11-4d0e-9a51-0a6c1e000008",
+      "name": "Filtrer les nouvelles",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Normalisation des raisons sociales : clé de repli quand le SIRET manque.\n// « IWIT Systems », « IWIT SYSTEMS SAS » et « iwit-systems » donnent la même clé.\nconst FORMES = /\\b(SAS|SASU|SARL|EURL|SA|SCOP|SCI|SNC|GIE|EI|EIRL|GROUP|GROUPE|FRANCE)\\b/g;\nconst normNom = s => String(s || '')\n  .toUpperCase()\n  .normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')   // enlève les accents\n  .replace(FORMES, '')\n  .replace(/[^A-Z0-9]/g, '');\nconst normSiret = s => String(s || '').replace(/\\D/g, '');\n\nconst connu = $('Clés connues').first().json;\nconst sirets = new Set(connu.sirets);\nconst noms = new Set(connu.noms.map(normNom).filter(Boolean));\n\nconst tous = $('Dédoublonner').all();\nlet parSiret = 0;\nlet parNom = 0;\nconst nouveaux = tous.filter(i => {\n  const s = normSiret(i.json.siret);\n  const n = normNom(i.json.nom);\n  if (s && sirets.has(s)) { parSiret++; return false; }   // clé forte\n  if (n && noms.has(n)) { parNom++; return false; }       // clé de repli\n  return true;\n});\nconsole.log(`${nouveaux.length} nouvelles sur ${tous.length} — ${parSiret} connues par SIRET, ${parNom} par nom`);\nreturn nouveaux;\n"
+      }
+    },
+    {
+      "id": "5b1f0c2e-7a11-4d0e-9a51-0a6c1e000009",
+      "name": "Interroger le registre",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        0
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "parameters": {
+        "method": "GET",
+        "url": "=https://recherche-entreprises.api.gouv.fr/search?q={{ $json.siret }}&per_page=1",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "recherche-alternance/1.0 (usage personnel)"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1000
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "5b1f0c2e-7a11-4d0e-9a51-0a6c1e00000a",
+      "name": "Extraire les dirigeants",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "// Fusionne la réponse du registre avec l'établissement d'origine.\n// Un SIRET introuvable ou une erreur réseau (onError: continueRegularOutput) ne plante rien :\n// l'entreprise ressort avec registre = 'introuvable' / 'erreur' et sera écartée par le filtre suivant.\nconst base = $('Filtrer les nouvelles').item.json;\nconst r = ($json.results || [])[0];\nlet registre = 'ok';\nif ($json.error) registre = 'erreur';\nelse if (!r) registre = 'introuvable';\n\n// L'établissement (SIRET de La Bonne Boîte) doit être celui que le registre a trouvé,\n// et c'est SON état qui compte : une société peut rester active alors que cet établissement est fermé.\nconst etab = (r?.matching_etablissements || []).find(e => e.siret === base.siret);\nif (registre === 'ok' && !etab) registre = 'introuvable';\n\nconst dirigeants = ((r && r.dirigeants) || [])\n  .filter(d => d.type_dirigeant === 'personne physique')\n  .map(d => `${(d.prenoms || '').trim()} ${(d.nom || '').trim()}${d.qualite ? ' — ' + d.qualite : ''}`)\n  .slice(0, 4)\n  .join(' · ');\n\n// 'A' seulement si la société ET l'établissement sont actifs ; sinon l'état qui pose problème.\nconst etat = registre === 'ok'\n  ? (etab.etat_administratif !== 'A' ? etab.etat_administratif : r.etat_administratif)\n  : '';\n\nreturn { json: {\n  ...base,\n  registre,\n  dirigeants,\n  date_creation: r?.date_creation || '',\n  etat_administratif: etat,\n  effectif_registre: r?.tranche_effectif_salarie || '',\n} };\n"
+      }
+    },
+    {
+      "id": "5b1f0c2e-7a11-4d0e-9a51-0a6c1e00000b",
+      "name": "Écarter les entreprises fermées",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        1980,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c0a1b2c3-0000-4000-8000-000000000001",
+              "leftValue": "={{ $json.etat_administratif }}",
+              "rightValue": "A",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Chaque lundi 7h": {
+      "main": [
+        [
+          {
+            "node": "Codes ROME",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lancement manuel": {
+      "main": [
+        [
+          {
+            "node": "Codes ROME",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Codes ROME": {
+      "main": [
+        [
+          {
+            "node": "La Bonne Boîte",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "La Bonne Boîte": {
+      "main": [
+        [
+          {
+            "node": "Dédoublonner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dédoublonner": {
+      "main": [
+        [
+          {
+            "node": "Lire Notion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lire Notion": {
+      "main": [
+        [
+          {
+            "node": "Clés connues",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clés connues": {
+      "main": [
+        [
+          {
+            "node": "Filtrer les nouvelles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtrer les nouvelles": {
+      "main": [
+        [
+          {
+            "node": "Interroger le registre",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Interroger le registre": {
+      "main": [
+        [
+          {
+            "node": "Extraire les dirigeants",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraire les dirigeants": {
+      "main": [
+        [
+          {
+            "node": "Écarter les entreprises fermées",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Paris"
+  },
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": null,
+  "versionId": "a8aaffd0-cc7a-4f06-a879-33b9b102db43",
+  "activeVersionId": null,
+  "versionCounter": 14,
+  "triggerCount": 0,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-09-30T21:50:09.455Z",
+      "createdAt": "2026-09-30T21:50:09.455Z",
+      "role": "workflow:owner",
+      "workflowId": "marche-cache",
+      "projectId": "3tQLdbXSrpKYsg49",
+      "project": {
+        "updatedAt": "2026-09-30T10:00:29.022Z",
+        "createdAt": "2026-09-30T09:58:27.731Z",
+        "id": "3tQLdbXSrpKYsg49",
+        "name": "Kamal Kaced <kkaced31@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "54115621-27ac-4391-a00e-734d75006ec5"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}
